@@ -12,14 +12,14 @@ from titan.config import WEIGHTS
 from titan.data import get_sp500_tickers
 from titan.analyst import RoboAnalyst
 
-# --- 1. CONFIGURATION & SETUP ---
+# 1. CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
 
 # SSL Bypass for Mac/PC (Fixes "Certificate Verify Failed" errors)
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# --- 2. UI ---
-st.title("🛡️ Titan AI: Market Scanner")
+# 2. UI
+st.title("Titan AI: Market Scanner")
 st.markdown("`Status: Online` | `Model: v4.2 (Value/Momentum)` | `Universe: S&P 500`")
 
 # Hidden Sidebar for "Power Users" (You)
@@ -28,7 +28,7 @@ with st.sidebar:
     st.info("The AI runs autonomously. Settings are optimized for the current VIX environment.")
     concurrency = st.slider("Thread Power (Speed vs Safety)", 1, 20, 5)
 
-if st.button("🚀 Initialize Market Scan"):
+if st.button("Initialize Market Scan"):
 
     # 1. Get Universe
     with st.status("📡 Connecting to Market Data Streams...", expanded=True) as status:
@@ -74,7 +74,7 @@ if st.button("🚀 Initialize Market Scan"):
                 if i % 5 == 0 or i == len(futures) - 1:
                     progress_bar.progress((i + 1) / len(tickers))
 
-        status.update(label="✅ Scan Complete!", state="complete", expanded=False)
+        status.update(label="Scan Complete!", state="complete", expanded=False)
 
     # 3. Results Display
     if results:
@@ -96,7 +96,7 @@ if st.button("🚀 Initialize Market Scan"):
                 st.caption(f"{stock.metrics['Trend']}")
 
         st.divider()
-        st.subheader("📄 Detailed Analyst Reports")
+        st.subheader("Detailed Analyst Reports")
 
         # Only show top 30 to keep browser fast
         for stock in results[:30]:
