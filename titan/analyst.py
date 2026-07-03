@@ -122,14 +122,14 @@ class RoboAnalyst:
             rating, color = "SELL", "red"
 
         self.memo = f"""
-        #### 🎯 Rating: :{color}[{rating}] (Score: {int(s)})
+        ####Rating: :{color}[{rating}] (Score: {int(s)})
 
         **Investment Thesis:**
         {self.ticker} is currently trading at **${m['Price']:.2f}**.
         The model has flagged this asset based on a **{m['Val_Type']} of {m['Val_Metric']:.2f}** and a **{m['Trend']}** long-term trend profile.
 
         **Key Drivers:**
-        * **Momentum:** RSI is {m['RSI']:.1f}. {'✅ Healthy buying pressure.' if 40 < m['RSI'] < 70 else '⚠️ Caution: Potential reversal zone.'}
-        * **Quality:** Net Margins of {m['Margin']:.1%} suggest {'💎 heavy competitive moat.' if m['Margin'] > 0.20 else 'standard industry profitability.'}
+        * **Momentum:** RSI is {m['RSI']:.1f}. {' Healthy buying pressure.' if 40 < m['RSI'] < 70 else 'Caution: Potential reversal zone.'}
+        * **Quality:** Net Margins of {m['Margin']:.1%} suggest {'heavy competitive moat.' if m['Margin'] > 0.20 else 'standard industry profitability.'}
         * **Risk:** Beta of {m['Beta']:.2f} indicates {'low volatility.' if m['Beta'] < 1.0 else 'higher than average market sensitivity.'}
         """
