@@ -31,7 +31,7 @@ with st.sidebar:
 if st.button("Initialize Market Scan"):
 
     # 1. Get Universe
-    with st.status("📡 Connecting to Market Data Streams...", expanded=True) as status:
+    with st.status("Connecting to Market Data Streams...", expanded=True) as status:
         st.write("Downloading S&P 500 Index constituents...")
         tickers = get_sp500_tickers()
         st.write(f"Universe Identified: {len(tickers)} equities.")
