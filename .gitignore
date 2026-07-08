@@ -16,3 +16,4 @@ env/
 .idea/
 .claude/
 .streamlit/
+docs/

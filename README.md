@@ -6,6 +6,26 @@ A Streamlit app that scans the S&P 500, scores each company on Value,
 Momentum, Quality, Solvency, and Volatility factors, and surfaces the
 top-ranked picks with a Wall Street-style writeup and radar chart.
 
+## Roadmap
+
+Titan is evolving into an AI-powered investment research platform on top
+of the scanner above:
+
+- **Phase 1 — AI Investment Chat**: ask natural-language questions
+  ("Why is Microsoft ranked above Google?", "What are Nvidia's biggest
+  risks?") and get answers grounded in Titan's own factor scores and
+  rankings, with source citations — not generic LLM knowledge.
+- **Phase 2 — Earnings Intelligence**: AI-generated earnings call
+  summaries, guidance-direction tracking, sentiment, risk extraction, and
+  quarter-over-quarter comparisons, feeding into the same chat.
+
+The full design — system architecture, per-feature technical specs,
+GitHub milestones/issues, target repo structure, and longer-term
+expansion (Portfolio Builder, Backtesting, Multi-Agent Analyst, Titan
+Copilot, Real-time Alerts) — lives in [`docs/`](docs/README.md). The
+scanner in this repo keeps working as-is; Phase 1 is additive, not a
+rewrite.
+
 ## Project structure
 
 ```
