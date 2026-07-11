@@ -35,6 +35,13 @@ rewrite.
 │   ├── config.py          # Scoring weights
 │   ├── data.py             # S&P 500 ticker universe (Wikipedia scrape + fallback)
 │   └── analyst.py          # RoboAnalyst: per-ticker fundamental/technical scoring
+├── src/
+│   └── data/
+│       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
+│       ├── db.py           # Engine/session, reads DATABASE_URL
+│       └── migrations/     # Alembic migrations
+├── docker-compose.yml     # Local Postgres for dev
+├── alembic.ini
 ├── .streamlit/
 │   └── config.toml        # Theme + Streamlit runtime settings
 ├── requirements.txt
@@ -58,6 +65,28 @@ streamlit run app.py
 Click **Initialize Market Scan** in the UI to pull the current S&P 500
 constituent list, fetch price history + fundamentals for each ticker via
 `yfinance`, and rank the results.
+
+## Database (Postgres + Alembic)
+
+The scanner itself still runs entirely in-memory. A Postgres schema
+(`companies`, `scan_runs`, `factor_scores` — see
+[docs/architecture.md](docs/architecture.md#4-database-schema-initial))
+exists so the Phase 1 chat/API work in [docs/](docs/README.md) has
+somewhere to persist scan results; nothing in `app.py` writes to it yet.
+
+```bash
+# Start local Postgres (maps to host port 5433 to avoid clashing with
+# any Postgres you already have on 5432)
+docker compose up -d db
+
+# Apply migrations
+alembic upgrade head
+```
+
+By default the app connects to
+`postgresql+psycopg2://titan:titan@localhost:5433/titan`. Override with
+the `DATABASE_URL` environment variable to point at a different
+database (e.g. in CI or production).
 
 ## Notes
 

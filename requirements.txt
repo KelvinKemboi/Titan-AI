@@ -4,3 +4,8 @@ yfinance>=0.2.40
 ta>=0.11.0
 plotly>=5.20
 lxml>=5.0
+
+# Persistence (docs/issues.md #1)
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg2-binary>=2.9
