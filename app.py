@@ -1,16 +1,11 @@
 import ssl
-import threading
-import time
-import random
-from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 import plotly.graph_objects as go
-from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from titan.config import WEIGHTS
 from titan.data import get_sp500_tickers
-from titan.analyst import RoboAnalyst
+from src.analytics.scanner_service import run_scan
 
 # 1. CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
@@ -38,41 +33,14 @@ if st.button("Initialize Market Scan"):
 
         # 2. Scanning Loop
         st.write("Spinning up AI Analyst Swarm...")
-        results = []
         progress_bar = st.progress(0)
 
-        # Streamlit's script context must be propagated to worker threads
-        # explicitly, since ThreadPoolExecutor threads are created outside
-        # the main script run.
-        ctx = get_script_run_ctx()
+        def on_progress(i, total):
+            # Update UI every 5 ticks (and on the final tick) to save resources
+            if i % 5 == 0 or i == total - 1:
+                progress_bar.progress((i + 1) / total)
 
-        # The Worker Function
-        def process_ticker(ticker):
-            add_script_run_ctx(threading.current_thread(), ctx)
-
-            # Polite Delay to prevent IP Bans (Dynamic Throttling)
-            time.sleep(random.uniform(0.1, 1.0))
-
-            analyst = RoboAnalyst(ticker)
-            if analyst.analyze():
-                analyst.generate_memo()
-                return analyst
-            return None
-
-        # Threaded Execution
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            # Submit all jobs
-            futures = [executor.submit(process_ticker, t) for t in tickers]
-
-            # Iterate as they complete
-            for i, future in enumerate(futures):
-                res = future.result()
-                if res and res.valid:
-                    results.append(res)
-
-                # Update UI every 5 ticks (and on the final tick) to save resources
-                if i % 5 == 0 or i == len(futures) - 1:
-                    progress_bar.progress((i + 1) / len(tickers))
+        results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
 
         status.update(label="Scan Complete!", state="complete", expanded=False)
 
