@@ -48,10 +48,11 @@ def run_scan(tickers, concurrency=5, on_progress=None):
 
     return results
 
-
+# compare the results of the scan with the database and persist the new data - update then insert if not exists
 def _upsert_company(session, result):
     """Insert or refresh a companies row from the fundamentals RoboAnalyst.analyze() fetched."""
     info = result.info or {}
+    # Upsert the company data into the database using PostgreSQL's ON CONFLICT clause
     stmt = pg_insert(Company).values(
         ticker=result.ticker,
         name=info.get("longName") or info.get("shortName"),
@@ -71,12 +72,14 @@ def _upsert_company(session, result):
     )
     session.execute(stmt)
 
-
+# save the factor score for a ticker in a scan run to the database
 def _save_factor_score(session, scan_run_id, result):
     """Insert one factor_scores row from a completed RoboAnalyst result."""
+    # Unpack the individual factor scores from the result metrics
     value_score, momentum_score, quality_score, solvency_score, volatility_score = (
         result.metrics["Scores"]
     )
+    # add the factor score to the database
     session.add(FactorScore(
         ticker=result.ticker,
         scan_run_id=scan_run_id,
@@ -90,7 +93,7 @@ def _save_factor_score(session, scan_run_id, result):
         raw_metrics=result.metrics,
     ))
 
-
+# scan the tickers and persist the results to the database, handling concurrency and progress updates
 def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
     """
     Runs `run_scan` and persists the outcome to Postgres: one `scan_runs`
@@ -105,17 +108,19 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
     """
     session = SessionLocal()
     try:
-        scan_run = ScanRun(status="running", universe_size=len(tickers))
+        scan_run = ScanRun(status="running", universe_size=len(tickers)) # create a new scan run record in the database with the status "running" and the total number of tickers to be scanned
         session.add(scan_run)
         session.commit()
 
         try:
+            # Run the scan
             results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
+            # Persist the results to the database
             for result in results:
                 _upsert_company(session, result)
                 _save_factor_score(session, scan_run.id, result)
         except Exception:
-            session.rollback()
+            session.rollback() # Rollback the session in case of an exception to avoid partial commits
             scan_run.status = "failed"
             scan_run.completed_at = func.now()
             session.commit()
