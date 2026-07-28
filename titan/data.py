@@ -16,8 +16,6 @@ FALLBACK_TICKERS = [
 
 def _fetch_from_wikipedia():
     """Scrapes Wikipedia for the S&P 500 list."""
-    # Wikipedia returns 403 to requests with no User-Agent header, so
-    # pd.read_html(url) alone (no header control) no longer works.
     resp = requests.get(
         WIKIPEDIA_URL,
         timeout=10,
