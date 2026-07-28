@@ -13,7 +13,7 @@ class RoboAnalyst:
     def analyze(self):
         """
         Performs a full quantitative audit on the ticker.
-        Returns True if successful, False if data is missing/corrupt.
+        Returns True if successful, False if data is insufficient/corrupt.
         """
         try:
             stock = yf.Ticker(self.ticker)
@@ -32,14 +32,14 @@ class RoboAnalyst:
 
             # A. Technical Factors
             current_price = close.iloc[-1]
-            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1]
-            macd = ta.trend.MACD(close).macd_diff().iloc[-1]
-            sma_200 = close.rolling(window=200).mean().iloc[-1]
+            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1] # relative strength index
+            macd = ta.trend.MACD(close).macd_diff().iloc[-1] # moving average convergence divergence(used to spot price trends, measure market momentum, and find buy or sell signals)
+            sma_200 = close.rolling(window=200).mean().iloc[-1] # 200-day simple moving average
             trend = "Bullish" if current_price > sma_200 else "Bearish"
 
             # B. Fundamental Factors (with defaults for missing data)
-            peg = info.get('pegRatio')
-            pe = info.get('trailingPE')
+            peg = info.get('pegRatio') # price/earnings to growth ratio
+            pe = info.get('trailingPE') # price/earnings ratio
 
             # Smart Valuation Logic
             if peg is not None:
@@ -61,7 +61,7 @@ class RoboAnalyst:
             # Value: PEG < 1.0 is elite (100). PEG > 3.0 is poor (0).
             val_score = max(0, min(100, (3.0 - val_metric) * 50))
 
-            # Momentum: We want RSI 50-70.
+            # Momentum(speed and strength of the trend): We want RSI 50-70.
             # Penalize if Overbought (>75) or Oversold (<30)
             if 40 <= rsi <= 75:
                 mom_score = 100
@@ -71,17 +71,17 @@ class RoboAnalyst:
                 mom_score += 10  # Bonus for rising MACD
             if trend == "Bearish":
                 mom_score -= 30  # Penalty for downtrend
-            mom_score = max(0, min(100, mom_score))
+            mom_score = max(0, min(100, mom_score)) 
 
-            # Quality: Margins > 20% is elite.
+            # Quality(how valuable it is): Margins > 20% is elite.
             qual_score = max(0, min(100, margins * 500))
 
-            # Solvency: Debt/Equity < 50% is elite.
+            # Solvency(how healthy it is): Debt/Equity < 50% is elite.
             if debt_eq is None:
                 debt_eq = 100
             solv_score = max(0, min(100, (200 - debt_eq) * 0.5))
 
-            # Volatility: Beta < 1.0 is safe.
+            # Volatility(how risky it is): Beta < 1.0 is safe.
             if beta is None:
                 beta = 1.0
             vol_score = max(0, min(100, (1.8 - beta) * 100))
