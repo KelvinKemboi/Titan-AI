@@ -25,13 +25,13 @@ with st.sidebar:
 
 if st.button("Initialize Market Scan"):
 
-    # 1. Get Universe
+    # Get Universe
     with st.status("Connecting to Market Data Streams...", expanded=True) as status:
         st.write("Downloading S&P 500 Index constituents...")
         tickers = get_sp500_tickers()
         st.write(f"Universe Identified: {len(tickers)} equities.")
 
-        # 2. Scanning Loop
+        # Scanning Loop
         st.write("Spinning up AI Analyst Swarm...")
         progress_bar = st.progress(0)
 
@@ -44,7 +44,7 @@ if st.button("Initialize Market Scan"):
 
         status.update(label="Scan Complete!", state="complete", expanded=False)
 
-    # 3. Results Display
+    # Results Display
     if results:
         # Sort by Score
         results.sort(key=lambda x: x.score, reverse=True)

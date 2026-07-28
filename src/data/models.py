@@ -8,16 +8,16 @@ from sqlalchemy import (
     String,
     Text,
     TIMESTAMP,
-)
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import declarative_base
+) # datatypes for the columns in the database tables
+from sqlalchemy.dialects.postgresql import JSONB # PostgreSQL-specific JSONB datatype for storing JSON data
+from sqlalchemy.orm import declarative_base # object-relational mapping (ORM) base class for defining models
 from sqlalchemy.sql import func
 
 Base = declarative_base()
 
-
+# reference data per ticker. Refreshed on each scan run.
 class Company(Base):
-    """Reference data per ticker. Refreshed on each scan run."""
+    """Reference dataxa per ticker. Refreshed on each scan run."""
 
     __tablename__ = "companies"
 
@@ -28,7 +28,7 @@ class Company(Base):
     description = Column(Text)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
-
+# log of each ticker's scan run
 class ScanRun(Base):
     """One row per Scanner Service execution."""
 
@@ -40,7 +40,7 @@ class ScanRun(Base):
     universe_size = Column(Integer)
     status = Column(String, nullable=False, default="running")
 
-
+# store the factor scores for each ticker in each scan run
 class FactorScore(Base):
     """One row per ticker per scan run — the factor-score time series."""
 
