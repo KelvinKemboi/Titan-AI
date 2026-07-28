@@ -8,6 +8,9 @@ env/
 # Streamlit
 .streamlit/secrets.toml
 
+# Secrets
+.env
+
 # OS
 .DS_Store
 
