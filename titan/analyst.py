@@ -7,7 +7,9 @@ class RoboAnalyst:
         self.ticker = ticker
         self.score = 0
         self.metrics = {}
+        self.info = {}
         self.memo = ""
+        self.rating = None
         self.valid = False
 
     def analyze(self):
@@ -26,6 +28,7 @@ class RoboAnalyst:
 
             # 2. Fetch Fundamentals
             info = stock.info
+            self.info = info
 
             # QUANTITATIVE ANALYSIS
             close = hist['Close']
@@ -121,6 +124,7 @@ class RoboAnalyst:
         else:
             rating, color = "SELL", "red"
 
+        self.rating = rating
         self.memo = f"""
         ####Rating: :{color}[{rating}] (Score: {int(s)})
 

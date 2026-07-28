@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 
 from titan.config import WEIGHTS
 from titan.data import get_sp500_tickers
-from src.analytics.scanner_service import run_scan
+from src.analytics.scanner_service import run_scan_and_persist
 
 # 1. CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
@@ -40,7 +40,7 @@ if st.button("Initialize Market Scan"):
             if i % 5 == 0 or i == total - 1:
                 progress_bar.progress((i + 1) / total)
 
-        results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
+        results = run_scan_and_persist(tickers, concurrency=concurrency, on_progress=on_progress)
 
         status.update(label="Scan Complete!", state="complete", expanded=False)
 

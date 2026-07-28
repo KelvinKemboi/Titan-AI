@@ -2,6 +2,11 @@ import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.sql import func
+
+from src.data.db import SessionLocal
+from src.data.models import Company, FactorScore, ScanRun
 from titan.analyst import RoboAnalyst
 
 
@@ -42,3 +47,89 @@ def run_scan(tickers, concurrency=5, on_progress=None):
                 on_progress(i, len(futures))
 
     return results
+
+
+def _upsert_company(session, result):
+    """Insert or refresh a companies row from the fundamentals RoboAnalyst.analyze() fetched."""
+    info = result.info or {}
+    stmt = pg_insert(Company).values(
+        ticker=result.ticker,
+        name=info.get("longName") or info.get("shortName"),
+        sector=info.get("sector"),
+        industry=info.get("industry"),
+        description=info.get("longBusinessSummary"),
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker"],
+        set_={
+            "name": stmt.excluded.name,
+            "sector": stmt.excluded.sector,
+            "industry": stmt.excluded.industry,
+            "description": stmt.excluded.description,
+            "updated_at": func.now(),
+        },
+    )
+    session.execute(stmt)
+
+
+def _save_factor_score(session, scan_run_id, result):
+    """Insert one factor_scores row from a completed RoboAnalyst result."""
+    value_score, momentum_score, quality_score, solvency_score, volatility_score = (
+        result.metrics["Scores"]
+    )
+    session.add(FactorScore(
+        ticker=result.ticker,
+        scan_run_id=scan_run_id,
+        value_score=value_score,
+        momentum_score=momentum_score,
+        quality_score=quality_score,
+        solvency_score=solvency_score,
+        volatility_score=volatility_score,
+        composite_score=result.score,
+        rating=result.rating,
+        raw_metrics=result.metrics,
+    ))
+
+
+def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
+    """
+    Runs `run_scan` and persists the outcome to Postgres: one `scan_runs`
+    row for the run, one `factor_scores` row per successfully-analyzed
+    ticker, and an upserted `companies` row per ticker from the
+    fundamentals fetched during analysis.
+
+    A run where every ticker fails `analyze()` is marked `failed`; a run
+    where some (but not all) tickers fail is marked `partial`, so a
+    partial failure never fails the whole run. Returns the same
+    `run_scan` results, unsorted.
+    """
+    session = SessionLocal()
+    try:
+        scan_run = ScanRun(status="running", universe_size=len(tickers))
+        session.add(scan_run)
+        session.commit()
+
+        try:
+            results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
+            for result in results:
+                _upsert_company(session, result)
+                _save_factor_score(session, scan_run.id, result)
+        except Exception:
+            session.rollback()
+            scan_run.status = "failed"
+            scan_run.completed_at = func.now()
+            session.commit()
+            raise
+
+        if not results:
+            scan_run.status = "failed"
+        elif len(results) < len(tickers):
+            scan_run.status = "partial"
+        else:
+            scan_run.status = "complete"
+        scan_run.completed_at = func.now()
+        session.commit()
+
+        return results
+    finally:
+        session.close()
