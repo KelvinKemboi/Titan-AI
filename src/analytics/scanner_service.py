@@ -6,7 +6,7 @@ from titan.analyst import RoboAnalyst
 
 
 def _analyze_ticker(ticker):
-    # Polite Delay to prevent IP Bans (Dynamic Throttling)
+    # Delay to prevent IP Bans (Dynamic Throttling)
     time.sleep(random.uniform(0.1, 1.0))
 
     analyst = RoboAnalyst(ticker)
@@ -27,14 +27,17 @@ def run_scan(tickers, concurrency=5, on_progress=None):
     """
     results = []
 
+    # Run the analysis concurrently with a thread pool
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = [executor.submit(_analyze_ticker, t) for t in tickers]
+        futures = [executor.submit(_analyze_ticker, t) for t in tickers] # Submit each ticker to the thread pool for analysis
 
+        # Process the results as they complete
         for i, future in enumerate(futures):
             res = future.result()
             if res and res.valid:
                 results.append(res)
 
+            # on_progress callback for UI updates, if provided
             if on_progress:
                 on_progress(i, len(futures))
 
