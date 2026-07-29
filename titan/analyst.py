@@ -35,7 +35,7 @@ class RoboAnalyst:
 
             # A. Technical Factors
             current_price = close.iloc[-1]
-            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1] # relative strength index
+            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1] # relative strength index - for measuring the speed and change of price movements, used to identify overbought or oversold conditions
             macd = ta.trend.MACD(close).macd_diff().iloc[-1] # moving average convergence divergence(used to spot price trends, measure market momentum, and find buy or sell signals)
             sma_200 = close.rolling(window=200).mean().iloc[-1] # 200-day simple moving average
             trend = "Bullish" if current_price > sma_200 else "Bearish"
