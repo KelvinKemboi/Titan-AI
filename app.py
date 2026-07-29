@@ -5,21 +5,21 @@ import plotly.graph_objects as go
 
 from titan.config import WEIGHTS
 from titan.data import get_sp500_tickers
-from src.analytics.scanner_service import run_scan
+from src.analytics.scanner_service import run_scan_and_persist
 
-# 1. CONFIGURATION & SETUP
+# CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
 
 # SSL Bypass for Mac/PC (Fixes "Certificate Verify Failed" errors)
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# 2. UI
+# UI
 st.title("Titan AI: Market Scanner")
 st.markdown("`Status: Online` | `Model: v4.2 (Value/Momentum)` | `Universe: S&P 500`")
 
 # Hidden Sidebar for "Power Users" (You)
 with st.sidebar:
-    st.header("⚙️ Simulation Settings")
+    st.header(" Simulation Settings")
     st.info("The AI runs autonomously. Settings are optimized for the current VIX environment.")
     concurrency = st.slider("Thread Power (Speed vs Safety)", 1, 20, 5)
 
@@ -34,14 +34,11 @@ if st.button("Initialize Market Scan"):
         # Scanning Loop
         st.write("Spinning up AI Analyst Swarm...")
         progress_bar = st.progress(0)
-
         def on_progress(i, total):
             # Update UI every 5 ticks (and on the final tick) to save resources
             if i % 5 == 0 or i == total - 1:
                 progress_bar.progress((i + 1) / total)
-
-        results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
-
+        results = run_scan_and_persist(tickers, concurrency=concurrency, on_progress=on_progress)
         status.update(label="Scan Complete!", state="complete", expanded=False)
 
     # Results Display
@@ -89,6 +86,6 @@ if st.button("Initialize Market Scan"):
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True, key=f"radar-{stock.ticker}")
     else:
         st.error("Scan failed. Check your internet connection or try again later.")
