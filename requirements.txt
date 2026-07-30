@@ -12,3 +12,6 @@ alembic>=1.13
 psycopg2-binary>=2.9
 
 apscheduler>=3.10
+
+fastapi>=0.110
+uvicorn>=0.30

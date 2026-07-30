@@ -39,6 +39,12 @@ rewrite.
 │   ├── analytics/
 │   │   ├── scanner_service.py  # Runs + persists a scan (scan_runs, factor_scores, companies)
 │   │   └── scheduler.py        # Runs the scan on a recurring (hourly) schedule
+│   ├── api/
+│   │   ├── main.py             # FastAPI app + router registration
+│   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
+│   │   ├── deps.py             # Shared FastAPI dependencies (e.g. get_db)
+│   │   └── routes/
+│   │       └── health.py       # GET /health — DB connectivity check
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -109,6 +115,32 @@ python -m src.analytics.scheduler
   longer blocks new scans.
 - A failed scheduled run is logged (`logger.exception`, full traceback)
   rather than crashing the process, so future scheduled runs still fire.
+
+## API Gateway
+
+`src/api/` scaffolds the FastAPI service that Phase 1's `/chat`,
+`/rankings`, `/company/{ticker}`, `/compare`, and `/earnings/{ticker}`
+endpoints (see [docs/architecture.md](docs/architecture.md)) get added
+to. Today it only exposes a health check; routes land in later issues,
+registered in `src/api/main.py` alongside the existing one.
+
+```bash
+uvicorn src.api.main:app --reload
+# or: python -m src.api.main
+```
+
+```bash
+curl http://localhost:8000/health
+# {"status": "ok", "db": "ok"}          -> 200, Postgres reachable
+# {"detail": {"status": "error", ...}}  -> 503, Postgres unreachable
+```
+
+Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced
+from environment variables via `src/api/config.py`, with local-dev
+defaults — nothing is hardcoded. The DB connection itself reuses the
+same pooled SQLAlchemy engine as the scanner (`src/data/db.py`,
+`DATABASE_URL`), via the `get_db` dependency in `src/api/deps.py` that
+future routes will depend on for their own DB access.
 
 ## Notes
 
