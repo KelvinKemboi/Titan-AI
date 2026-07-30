@@ -1,6 +1,6 @@
 """
 Runs the Scanner Service on a recurring schedule instead of only on
-manual trigger (docs/issues.md #4). Standalone process:
+manual trigger. Standalone process:
 
     python -m src.analytics.scheduler
 """
