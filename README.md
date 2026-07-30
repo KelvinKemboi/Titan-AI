@@ -36,6 +36,9 @@ rewrite.
 │   ├── data.py             # S&P 500 ticker universe (Wikipedia scrape + fallback)
 │   └── analyst.py          # RoboAnalyst: per-ticker fundamental/technical scoring
 ├── src/
+│   ├── analytics/
+│   │   ├── scanner_service.py  # Runs + persists a scan (scan_runs, factor_scores, companies)
+│   │   └── scheduler.py        # Runs the scan on a recurring (hourly) schedule
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -68,11 +71,11 @@ constituent list, fetch price history + fundamentals for each ticker via
 
 ## Database (Postgres + Alembic)
 
-The scanner itself still runs entirely in-memory. A Postgres schema
-(`companies`, `scan_runs`, `factor_scores` — see
-[docs/architecture.md](docs/architecture.md#4-database-schema-initial))
-exists so the Phase 1 chat/API work in [docs/](docs/README.md) has
-somewhere to persist scan results; nothing in `app.py` writes to it yet.
+Every scan persists to Postgres (`companies`, `scan_runs`, `factor_scores`
+— see [docs/architecture.md](docs/architecture.md#4-database-schema-initial))
+via `src/analytics/scanner_service.py:run_scan_and_persist()`, which both
+the "Initialize Market Scan" button and the scheduler below call. A
+Postgres instance is therefore required to run a scan, not optional.
 
 ```bash
 # Start local Postgres (maps to host port 5433 to avoid clashing with
@@ -87,6 +90,25 @@ By default the app connects to
 `postgresql+psycopg2://titan:titan@localhost:5433/titan`. Override with
 the `DATABASE_URL` environment variable to point at a different
 database (e.g. in CI or production).
+
+## Scheduled scanning
+
+Instead of only scanning on a manual button click, `src/analytics/scheduler.py`
+runs the same scan on a recurring interval (hourly by default, matching
+`app.py`'s `st.cache_data(ttl=3600)` cadence) as a standalone process:
+
+```bash
+python -m src.analytics.scheduler
+```
+
+- Overlapping runs are prevented: `run_scan_and_persist()` refuses to
+  start a new scan (raising `ScanAlreadyRunningError`) while a
+  `scan_runs` row is still `status="running"` — whether that run was
+  triggered by the scheduler or the Streamlit button. A `running` row
+  older than 2 hours is treated as an abandoned/crashed run and no
+  longer blocks new scans.
+- A failed scheduled run is logged (`logger.exception`, full traceback)
+  rather than crashing the process, so future scheduled runs still fire.
 
 ## Notes
 
