@@ -140,6 +140,11 @@ curl http://localhost:8000/rankings
 
 curl "http://localhost:8000/rankings?factor=momentum"
 # same shape, sorted by momentum_score desc instead
+
+curl http://localhost:8000/company/AAPL
+# {"ticker": "AAPL", "name": "Apple Inc.", "sector": "Technology", ...,
+#  "rating": "BUY", "composite_score": 71.68, "raw_metrics": {"RSI": ..., "Beta": ...}}
+# companies row + its latest factor_scores row; 404 for an unknown ticker
 ```
 
 Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced
