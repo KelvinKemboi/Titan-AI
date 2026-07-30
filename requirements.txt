@@ -7,7 +7,8 @@ lxml>=5.0
 requests>=2.31
 python-dotenv>=1.0
 
-# Persistence (docs/issues.md #1)
 sqlalchemy>=2.0
 alembic>=1.13
 psycopg2-binary>=2.9
+
+apscheduler>=3.10

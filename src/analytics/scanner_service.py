@@ -1,6 +1,7 @@
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
@@ -8,6 +9,14 @@ from sqlalchemy.sql import func
 from src.data.db import SessionLocal
 from src.data.models import Company, FactorScore, ScanRun
 from titan.analyst import RoboAnalyst
+
+# A `running` scan_runs row older than this is assumed to belong to a
+# crashed process, not an in-progress scan, so it no longer blocks new runs.
+STALE_RUN_THRESHOLD = timedelta(hours=2)
+
+
+class ScanAlreadyRunningError(Exception):
+    """Raised when a scan is requested while another one is still in progress."""
 
 
 def _analyze_ticker(ticker):
@@ -93,6 +102,29 @@ def _save_factor_score(session, scan_run_id, result):
         raw_metrics=result.metrics,
     ))
 
+def _blocking_run(session):
+    """
+    Returns the currently in-progress scan_runs row, or None if there
+    isn't one (or the only `running` row is stale. Its process crashed
+    without ever reaching a terminal status).
+    """
+    running = (
+        session.query(ScanRun)
+        .filter(ScanRun.status == "running")
+        .order_by(ScanRun.started_at.desc())
+        .first()
+    )
+    if running is None or running.started_at is None:
+        return running
+
+    started_at = running.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - started_at > STALE_RUN_THRESHOLD:
+        return None
+    return running
+
+
 # scan the tickers and persist the results to the database, handling concurrency and progress updates
 def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
     """
@@ -103,11 +135,19 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
 
     A run where every ticker fails `analyze()` is marked `failed`; a run
     where some (but not all) tickers fail is marked `partial`, so a
-    partial failure never fails the whole run. Returns the same
-    `run_scan` results, unsorted.
+    partial failure never fails the whole run. Raises
+    `ScanAlreadyRunningError` instead of starting a new run if one is
+    already in progress. Returns the same `run_scan` results, unsorted.
     """
     session = SessionLocal()
     try:
+        blocking = _blocking_run(session)
+        if blocking is not None:
+            raise ScanAlreadyRunningError(
+                f"scan_runs id={blocking.id} has been running since "
+                f"{blocking.started_at}; refusing to start a new scan"
+            )
+
         scan_run = ScanRun(status="running", universe_size=len(tickers)) # create a new scan run record in the database with the status "running" and the total number of tickers to be scanned
         session.add(scan_run)
         session.commit()
