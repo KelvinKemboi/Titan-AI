@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session # SQLAlchemy session for database interactions
 
 from src.api.deps import get_db
 
-router = APIRouter()
+router = APIRouter() # Create a new FastAPI router for health check endpoints
 
 
 @router.get("/health")
