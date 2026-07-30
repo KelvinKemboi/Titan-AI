@@ -121,8 +121,7 @@ python -m src.analytics.scheduler
 `src/api/` scaffolds the FastAPI service that Phase 1's `/chat`,
 `/rankings`, `/company/{ticker}`, `/compare`, and `/earnings/{ticker}`
 endpoints (see [docs/architecture.md](docs/architecture.md)) get added
-to. Today it only exposes a health check; routes land in later issues,
-registered in `src/api/main.py` alongside the existing one.
+to. Routes are registered in `src/api/main.py`.
 
 ```bash
 uvicorn src.api.main:app --reload
@@ -133,6 +132,14 @@ uvicorn src.api.main:app --reload
 curl http://localhost:8000/health
 # {"status": "ok", "db": "ok"}          -> 200, Postgres reachable
 # {"detail": {"status": "error", ...}}  -> 503, Postgres unreachable
+
+curl http://localhost:8000/rankings
+# [{"ticker": "ACGL", "scan_run_id": 2, "computed_at": "...",
+#   "composite_score": 98.8, "value_score": ..., "rating": "STRONG BUY", ...}, ...]
+# sorted by composite_score desc; [] if no scan has produced any factor_scores yet
+
+curl "http://localhost:8000/rankings?factor=momentum"
+# same shape, sorted by momentum_score desc instead
 ```
 
 Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced
