@@ -38,17 +38,23 @@ rewrite.
 ├── src/
 │   ├── analytics/
 │   │   ├── scanner_service.py  # Runs + persists a scan (scan_runs, factor_scores, companies)
-│   │   └── scheduler.py        # Runs the scan on a recurring (hourly) schedule
+│   │   ├── scheduler.py        # Runs the scan on a recurring (hourly) schedule
+│   │   └── explain.py          # Factor Score Explanation Engine (per-factor score/weight/driver)
 │   ├── api/
 │   │   ├── main.py             # FastAPI app + router registration
 │   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
 │   │   ├── deps.py             # Shared FastAPI dependencies (e.g. get_db)
 │   │   └── routes/
-│   │       └── health.py       # GET /health — DB connectivity check
+│   │       ├── health.py       # GET /health — DB connectivity check
+│   │       ├── rankings.py     # GET /rankings
+│   │       ├── company.py      # GET /company/{ticker}
+│   │       └── compare.py      # GET /compare
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
 │       ├── db.py           # Engine/session, reads DATABASE_URL
 │       └── migrations/     # Alembic migrations
+├── tests/
+│   └── unit/               # Mirrors src/ structure
 ├── docker-compose.yml     # Local Postgres for dev
 ├── alembic.ini
 ├── .streamlit/
@@ -154,6 +160,39 @@ curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
 # scan_run_id — a ticker missing from that run is listed in missing_tickers
 # rather than silently compared using stale data; 400 if fewer than 2 of the
 # requested tickers have data in the latest scan
+```
+
+### Factor Score Explanation Engine
+
+`src/analytics/explain.py` turns a `factor_scores` row into a structured
+(typed, not prose) explanation — per-factor score, its `WEIGHTS` value,
+its contribution to composite (`score * weight`), and a one-line driver
+templated from the same thresholds `titan/analyst.py` scores against
+(e.g. "PEG < 1.0 is elite"). This becomes an LLM tool in a later issue;
+for now it's a plain callable, not exposed via a route:
+
+```python
+from src.analytics.explain import explain_ticker
+from src.data.db import SessionLocal
+
+with SessionLocal() as db:
+    result = explain_ticker(db, "AAPL")
+    # FactorScoreExplanation(ticker='AAPL', composite_score=71.68, factors=[
+    #   FactorExplanation(factor='value', score=14.5, weight=0.25,
+    #     contribution=3.625, driver='PEG of 2.71 (PEG < 1.0 is elite, PEG > 3.0 is poor)'),
+    #   ...
+    # ])
+```
+
+`explain_factor_scores(factor_score)` is the pure/deterministic core (no
+DB access) — see `tests/unit/analytics/test_explain.py`. `explain_ticker`
+is a thin DB-fetching wrapper that raises `ValueError` for a ticker with
+no factor_scores row.
+
+## Tests
+
+```bash
+pytest
 ```
 
 Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced

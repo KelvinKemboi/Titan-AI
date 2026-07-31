@@ -15,3 +15,6 @@ apscheduler>=3.10
 
 fastapi>=0.110
 uvicorn>=0.30
+
+# Testing (docs/issues.md #9)
+pytest>=8.0
