@@ -48,7 +48,7 @@ def compare_tickers(db: Session, tickers: List[str]) -> CompareResult:
     for `tickers`, all pinned to the same (latest) scan_run_id so a stale
     row never gets silently compared against a fresh one. Also returns
     the factor deltas between the first two found tickers, sorted by
-    abs(delta) desc — the algorithm technical-design.md §3 specifies is
+    abs(delta) desc - the algorithm technical-design.md §3 specifies is
     inherently pairwise (`scores[a] - scores[b]`); extra tickers still
     appear in the aligned `tickers` table but aren't part of `deltas`.
 

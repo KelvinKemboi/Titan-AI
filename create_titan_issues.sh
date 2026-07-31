@@ -77,7 +77,7 @@ Wire the extracted scan function (#2) to persist results: one
 - `companies` rows created/updated with sector, industry, description
   from `yfinance` `info`
 - Partial failures (some tickers fail `analyze()`) don't fail the whole
-  run — `scan_runs.status` reflects partial success accurately
+  run - `scan_runs.status` reflects partial success accurately
 
 ## Dependencies
 #1, #2
@@ -183,13 +183,13 @@ Difficulty: M
 ## Description
 Implement technical-design.md §2 as a callable function returning a
 structured explanation (per-factor score, weight, contribution,
-driving metric) — this becomes an LLM tool in #11.
+driving metric) - this becomes an LLM tool in #11.
 
 ## Acceptance Criteria
 - Given a ticker, returns each factor's score, its `WEIGHTS` value, its
   contribution to composite, and a one-line description of what drove it
   (reusing the same thresholds `RoboAnalyst` scores against)
-- Output is structured data (typed fields), not prose — prose generation
+- Output is structured data (typed fields), not prose - prose generation
   is the LLM's job downstream, not this function's
 - Unit tested against known `factor_scores` fixtures with expected
   explanation output
@@ -231,7 +231,7 @@ feeds results back, returns a final response with attached sources.
 - Given a question answerable by one tool call, returns a correct,
   sourced response end-to-end
 - System prompt enforces "don't use outside knowledge for anything Titan
-  has data for" (technical-design.md §6) — verified with a question about
+  has data for" (technical-design.md §6) - verified with a question about
   a well-known public fact the model would otherwise answer from training
   data (e.g. "what sector is Apple in" should use the tool result, not
   general knowledge)
@@ -287,7 +287,7 @@ Difficulty: M
 
 ## Description
 Add a chat UI to the existing `app.py`, calling the new `/chat` API. This
-is additive — the existing scanner UI/flow is untouched.
+is additive - the existing scanner UI/flow is untouched.
 
 ## Acceptance Criteria
 - New sidebar or tab with a chat input + message history display
@@ -356,7 +356,7 @@ which tools to foreground.
   reasonable accuracy on a hand-written eval set (~30 example questions
   covering all three phase-1 example questions from the product brief)
 - Structured tools remain callable regardless of classification (per the
-  risk noted in technical-design.md §6) — classification informs routing,
+  risk noted in technical-design.md §6) - classification informs routing,
   it doesn't hard-gate tool availability
 - Classification latency doesn't dominate total response time (measure
   and document)
@@ -417,7 +417,7 @@ re-run the full tool-calling loop every time within a scan interval.
   response with cached `sources`
 - Cache is invalidated when the `scan_run_id` (or relevant
   `earnings_insights`, once Phase 2 lands) it drew from changes
-- Cache key strategy documented (this is easy to get subtly wrong —
+- Cache key strategy documented (this is easy to get subtly wrong -
   session-specific follow-ups must not be cached as if they were generic
   questions)
 
@@ -435,7 +435,7 @@ sessions/history are actually scoped per user, not shared/anonymous.
 
 ## Acceptance Criteria
 - API requires an auth token (even a simple API-key scheme for MVP is
-  acceptable — full OAuth is not required at this stage)
+  acceptable - full OAuth is not required at this stage)
 - `chat_sessions.user_id` reflects the authenticated caller
 - A user cannot read another user's `chat_sessions`/`chat_messages`
 
@@ -624,7 +624,7 @@ actually mentioned in the call, with supporting quotes.
 - `earnings_insights.risks` populated as a list of `{risk, quote}`
   objects
 - Extraction explicitly scoped to what was said in this call (not
-  general/10-K-style risk factors — that's out of scope, see
+  general/10-K-style risk factors - that's out of scope, see
   future-expansion.md)
 
 ## Dependencies
@@ -684,7 +684,7 @@ section sourced from `earnings_insights`.
 - Tickers with earnings data get an added section (summary, guidance
   direction, top risk) in the memo
 - Tickers without earnings data render exactly as today (no regression to
-  existing memo output — verify against current `generate_memo` snapshot)
+  existing memo output - verify against current `generate_memo` snapshot)
 - Report available both via API and in the Streamlit report view
 
 ## Dependencies
@@ -764,7 +764,7 @@ questions, run in CI against every Chat/Agent Service change.
 - Eval set includes all example questions from the original product
   brief (Phase 1 and Phase 2) plus edge cases surfaced during
   implementation (unknown ticker, insufficient history, stale data)
-- Each case has an expected answer shape (not necessarily exact text —
+- Each case has an expected answer shape (not necessarily exact text -
   e.g. "cites MSFT and GOOGL factor scores from the same scan_run_id")
 - CI fails on regression, not just on crash
 
@@ -779,7 +779,7 @@ Difficulty: M
 ## Description
 By this point the Chat/Agent Service calls multiple LLMs (intent
 classifier, generation, earnings extraction) across multiple tools per
-turn — add tracing so a bad answer or a cost spike is debuggable.
+turn - add tracing so a bad answer or a cost spike is debuggable.
 
 ## Acceptance Criteria
 - Every `/chat` request's tool calls, model calls, and token usage are

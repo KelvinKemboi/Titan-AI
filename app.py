@@ -42,7 +42,7 @@ if st.button("Initialize Market Scan"):
             results = run_scan_and_persist(tickers, concurrency=concurrency, on_progress=on_progress)
         except ScanAlreadyRunningError:
             results = None
-            status.update(label="A scan is already in progress — try again shortly.", state="error", expanded=False)
+            status.update(label="A scan is already in progress - try again shortly.", state="error", expanded=False)
         else:
             status.update(label="Scan Complete!", state="complete", expanded=False)
 
