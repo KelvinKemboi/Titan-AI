@@ -145,6 +145,15 @@ curl http://localhost:8000/company/AAPL
 # {"ticker": "AAPL", "name": "Apple Inc.", "sector": "Technology", ...,
 #  "rating": "BUY", "composite_score": 71.68, "raw_metrics": {"RSI": ..., "Beta": ...}}
 # companies row + its latest factor_scores row; 404 for an unknown ticker
+
+curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
+# {"scan_run_id": 7, "tickers": [{"ticker": "MSFT", ...}, {"ticker": "GOOGL", ...}],
+#  "missing_tickers": [], "delta_between": ["MSFT", "GOOGL"],
+#  "deltas": [{"factor": "momentum", "a": 80.0, "b": 100.0, "delta": -20.0}, ...]}
+# sorted by abs(delta) desc; both tickers always pinned to the same (latest)
+# scan_run_id — a ticker missing from that run is listed in missing_tickers
+# rather than silently compared using stale data; 400 if fewer than 2 of the
+# requested tickers have data in the latest scan
 ```
 
 Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced
