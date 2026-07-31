@@ -42,7 +42,7 @@ class ScanRun(Base):
 
 # store the factor scores for each ticker in each scan run
 class FactorScore(Base):
-    """One row per ticker per scan run — the factor-score time series."""
+    """One row per ticker per scan run - the factor-score time series."""
 
     __tablename__ = "factor_scores"
 

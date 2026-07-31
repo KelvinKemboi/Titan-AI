@@ -11,18 +11,18 @@ top-ranked picks with a Wall Street-style writeup and radar chart.
 Titan is evolving into an AI-powered investment research platform on top
 of the scanner above:
 
-- **Phase 1 — AI Investment Chat**: ask natural-language questions
+- **Phase 1 - AI Investment Chat**: ask natural-language questions
   ("Why is Microsoft ranked above Google?", "What are Nvidia's biggest
   risks?") and get answers grounded in Titan's own factor scores and
-  rankings, with source citations — not generic LLM knowledge.
-- **Phase 2 — Earnings Intelligence**: AI-generated earnings call
+  rankings, with source citations - not generic LLM knowledge.
+- **Phase 2 - Earnings Intelligence**: AI-generated earnings call
   summaries, guidance-direction tracking, sentiment, risk extraction, and
   quarter-over-quarter comparisons, feeding into the same chat.
 
-The full design — system architecture, per-feature technical specs,
+The full design - system architecture, per-feature technical specs,
 GitHub milestones/issues, target repo structure, and longer-term
 expansion (Portfolio Builder, Backtesting, Multi-Agent Analyst, Titan
-Copilot, Real-time Alerts) — lives in [`docs/`](docs/README.md). The
+Copilot, Real-time Alerts) - lives in [`docs/`](docs/README.md). The
 scanner in this repo keeps working as-is; Phase 1 is additive, not a
 rewrite.
 
@@ -45,7 +45,7 @@ rewrite.
 │   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
 │   │   ├── deps.py             # Shared FastAPI dependencies (e.g. get_db)
 │   │   └── routes/
-│   │       ├── health.py       # GET /health — DB connectivity check
+│   │       ├── health.py       # GET /health - DB connectivity check
 │   │       ├── rankings.py     # GET /rankings
 │   │       ├── company.py      # GET /company/{ticker}
 │   │       └── compare.py      # GET /compare
@@ -84,7 +84,7 @@ constituent list, fetch price history + fundamentals for each ticker via
 ## Database (Postgres + Alembic)
 
 Every scan persists to Postgres (`companies`, `scan_runs`, `factor_scores`
-— see [docs/architecture.md](docs/architecture.md#4-database-schema-initial))
+- see [docs/architecture.md](docs/architecture.md#4-database-schema-initial))
 via `src/analytics/scanner_service.py:run_scan_and_persist()`, which both
 the "Initialize Market Scan" button and the scheduler below call. A
 Postgres instance is therefore required to run a scan, not optional.
@@ -115,7 +115,7 @@ python -m src.analytics.scheduler
 
 - Overlapping runs are prevented: `run_scan_and_persist()` refuses to
   start a new scan (raising `ScanAlreadyRunningError`) while a
-  `scan_runs` row is still `status="running"` — whether that run was
+  `scan_runs` row is still `status="running"` - whether that run was
   triggered by the scheduler or the Streamlit button. A `running` row
   older than 2 hours is treated as an abandoned/crashed run and no
   longer blocks new scans.
@@ -157,7 +157,7 @@ curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
 #  "missing_tickers": [], "delta_between": ["MSFT", "GOOGL"],
 #  "deltas": [{"factor": "momentum", "a": 80.0, "b": 100.0, "delta": -20.0}, ...]}
 # sorted by abs(delta) desc; both tickers always pinned to the same (latest)
-# scan_run_id — a ticker missing from that run is listed in missing_tickers
+# scan_run_id - a ticker missing from that run is listed in missing_tickers
 # rather than silently compared using stale data; 400 if fewer than 2 of the
 # requested tickers have data in the latest scan
 ```
@@ -165,7 +165,7 @@ curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
 ### Factor Score Explanation Engine
 
 `src/analytics/explain.py` turns a `factor_scores` row into a structured
-(typed, not prose) explanation — per-factor score, its `WEIGHTS` value,
+(typed, not prose) explanation - per-factor score, its `WEIGHTS` value,
 its contribution to composite (`score * weight`), and a one-line driver
 templated from the same thresholds `titan/analyst.py` scores against
 (e.g. "PEG < 1.0 is elite"). This becomes an LLM tool in a later issue;
@@ -185,7 +185,7 @@ with SessionLocal() as db:
 ```
 
 `explain_factor_scores(factor_score)` is the pure/deterministic core (no
-DB access) — see `tests/unit/analytics/test_explain.py`. `explain_ticker`
+DB access) - see `tests/unit/analytics/test_explain.py`. `explain_ticker`
 is a thin DB-fetching wrapper that raises `ValueError` for a ticker with
 no factor_scores row.
 
@@ -197,7 +197,7 @@ pytest
 
 Config (`API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL`) is sourced
 from environment variables via `src/api/config.py`, with local-dev
-defaults — nothing is hardcoded. The DB connection itself reuses the
+defaults - nothing is hardcoded. The DB connection itself reuses the
 same pooled SQLAlchemy engine as the scanner (`src/data/db.py`,
 `DATABASE_URL`), via the `get_db` dependency in `src/api/deps.py` that
 future routes will depend on for their own DB access.
@@ -208,7 +208,7 @@ future routes will depend on for their own DB access.
   (`ssl._create_default_https_context`) as a workaround for the
   "Certificate Verify Failed" error some Mac/Python installs hit when
   calling Yahoo Finance / Wikipedia. This is a known tradeoff for local
-  convenience — do not rely on it for anything security-sensitive.
+  convenience - do not rely on it for anything security-sensitive.
 - Ticker scans run concurrently via `ThreadPoolExecutor`; the "Thread
   Power" slider in the sidebar controls how many tickers are analyzed at
   once (higher = faster scans, higher risk of being rate-limited by Yahoo

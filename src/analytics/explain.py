@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from src.data.models import FactorScore
 from titan.config import WEIGHTS
 
-# factor key -> (WEIGHTS key, FactorScore score column)
+# factor key -- (WEIGHTS key, FactorScore score column)
 _FACTOR_SPEC = [
     ("value", "Value", "value_score"),
     ("momentum", "Momentum", "momentum_score"),
@@ -16,7 +16,7 @@ _FACTOR_SPEC = [
     ("volatility", "Volatility", "volatility_score"),
 ]
 
-
+# for the factor score explanation API response
 class FactorExplanation(BaseModel):
     factor: str
     score: float
@@ -24,7 +24,7 @@ class FactorExplanation(BaseModel):
     contribution: float
     driver: str
 
-
+# for the factor score explanation API response
 class FactorScoreExplanation(BaseModel):
     ticker: str
     scan_run_id: int
@@ -33,7 +33,7 @@ class FactorScoreExplanation(BaseModel):
     rating: Optional[str] = None
     factors: List[FactorExplanation]
 
-
+# helper function to generate one-line explanations for each factor based on the raw_metrics dictionary
 def _value_driver(raw_metrics: dict) -> str:
     val_type = raw_metrics.get("Val_Type", "Unknown")
     val_metric = raw_metrics.get("Val_Metric")
@@ -41,7 +41,7 @@ def _value_driver(raw_metrics: dict) -> str:
         return "Val_Metric unavailable"
     if val_type == "Unknown":
         return (
-            f"No PEG or P/E available — defaulted to an assumed-expensive "
+            f"No PEG or P/E available - defaulted to an assumed-expensive "
             f"{val_metric:.2f} (PEG < 1.0 is elite, PEG > 3.0 is poor)"
         )
     return f"{val_type} of {val_metric:.2f} (PEG < 1.0 is elite, PEG > 3.0 is poor)"
@@ -88,17 +88,17 @@ _DRIVER_FUNCS = {
 def explain_factor_scores(factor_score: FactorScore) -> FactorScoreExplanation:
     """
     Factor Score Explanation Engine (technical-design.md §2): a structured,
-    typed breakdown of a factor_scores row — per-factor score, its
+    typed breakdown of a factor_scores row - per-factor score, its
     `WEIGHTS` value, its contribution to composite (`score * weight`), and
     a one-line description of what drove it, templated from the same
     thresholds `titan/analyst.py` scores against (e.g. "PEG < 1.0 is
     elite") rather than re-derived or guessed.
 
-    Pure/deterministic — no DB or network access — so it's unit testable
+    Pure/deterministic - no DB or network access - so it's unit testable
     directly against hand-built `FactorScore` fixtures. Returns typed
     fields only; generating prose from this is the LLM's job downstream
     (technical-design.md §2's risk note: don't let the LLM restate
-    numbers freely from memory, or it can round/hallucinate — it must
+    numbers freely from memory, or it can round/hallucinate - it must
     quote these fields verbatim).
     """
     raw_metrics = factor_score.raw_metrics or {}

@@ -103,7 +103,7 @@ def test_value_driver_when_val_type_unknown():
     value_driver = next(f.driver for f in result.factors if f.factor == "value")
 
     assert value_driver == (
-        "No PEG or P/E available — defaulted to an assumed-expensive "
+        "No PEG or P/E available - defaulted to an assumed-expensive "
         "5.00 (PEG < 1.0 is elite, PEG > 3.0 is poor)"
     )
 
