@@ -6,18 +6,17 @@ from pydantic import BaseModel
 
 class Source(BaseModel):
     """
-    Source-attribution contract (technical-design.md §5): every retrieval
-    tool must return this alongside its data, not just raw values, so a
+    Source-attribution contract: every retrieval
+    tool must return this alongside its data, so a
     response generator downstream can cite exactly which scan/ticker
     backs each claim instead of stating facts from memory. Enforced at
-    the tool-schema level (this type), not by convention.
+    the tool-schema level.
     """
 
     type: str
     ticker: str
     ref_id: int
     as_of: Optional[datetime] = None
-
 
 class ToolResult(BaseModel):
     """Envelope every tool in src/agents/tools/ returns: `data` (typed,

@@ -1,5 +1,5 @@
 """
-Manual test for docs/issues.md #10: prompt Claude with a comparison
+Manual test: prompt Claude with a comparison
 question and confirm it calls `compare_tickers` rather than fabricating
 numbers from training data. Requires ANTHROPIC_API_KEY and a Postgres
 with at least one completed scan (`streamlit run app.py` -> Initialize
@@ -23,17 +23,17 @@ QUESTION = "Compare MSFT and GOOGL's factor scores - which one is stronger and w
 
 
 def main():
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic() # uses ANTHROPIC_API_KEY from env
     messages = [{"role": "user", "content": QUESTION}]
 
+    # Ask the model to answer the question, and check if it calls a tool
     response = client.messages.create(
         model=MODEL,
         max_tokens=1024,
         tools=TOOLS,
         messages=messages,
     )
-
-    tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+    tool_use_blocks = [b for b in response.content if b.type == "tool_use"] 
 
     print(f"stop_reason: {response.stop_reason}")
     print(f"tool calls: {[b.name for b in tool_use_blocks]}")
@@ -71,7 +71,7 @@ def main():
                 }
             )
         messages.append({"role": "user", "content": tool_results})
-
+        # Ask the model to answer again with the tool results
         final = client.messages.create(
             model=MODEL,
             max_tokens=1024,
