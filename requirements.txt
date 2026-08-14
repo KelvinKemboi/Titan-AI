@@ -22,3 +22,6 @@ uvicorn>=0.30
 
 # for testing
 pytest>=8.0
+
+# for Claude tool-use (chat/agent LLM tools)
+anthropic>=0.40

@@ -49,10 +49,16 @@ rewrite.
 │   │       ├── rankings.py     # GET /rankings
 │   │       ├── company.py      # GET /company/{ticker}
 │   │       └── compare.py      # GET /compare
+│   ├── agents/
+│   │   └── tools/
+│   │       ├── base.py         # Shared tool contract: every tool returns source metadata
+│   │       └── factor_tools.py # get_factor_scores, compare_tickers Claude tool schemas
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
 │       ├── db.py           # Engine/session, reads DATABASE_URL
 │       └── migrations/     # Alembic migrations
+├── scripts/
+│   └── manual_test_tool_calling.py  # Live Claude tool-use verification
 ├── tests/
 │   └── unit/               # Mirrors src/ structure
 ├── docker-compose.yml     # Local Postgres for dev
@@ -168,8 +174,8 @@ curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
 (typed, not prose) explanation - per-factor score, its `WEIGHTS` value,
 its contribution to composite (`score * weight`), and a one-line driver
 templated from the same thresholds `titan/analyst.py` scores against
-(e.g. "PEG < 1.0 is elite"). This becomes an LLM tool in a later issue;
-for now it's a plain callable, not exposed via a route:
+(e.g. "PEG < 1.0 is elite"). Wired as an LLM tool below; it's also a
+plain callable on its own, not exposed via a route:
 
 ```python
 from src.analytics.explain import explain_ticker
@@ -188,6 +194,47 @@ with SessionLocal() as db:
 DB access) - see `tests/unit/analytics/test_explain.py`. `explain_ticker`
 is a thin DB-fetching wrapper that raises `ValueError` for a ticker with
 no factor_scores row.
+
+## LLM Tools
+
+`src/agents/tools/factor_tools.py` defines the Claude tool-use schemas
+for `get_factor_scores(ticker)` (backed by the Explanation Engine above)
+and `compare_tickers(tickers)` (backed by `src/api/routes/compare.py`),
+for the Chat/Agent Service a later issue builds. Every tool result is
+wrapped in a `ToolResult` (`src/agents/tools/base.py`): `data` matching
+the underlying function's response shape verbatim, plus `sources`
+(`type`, `ticker`, `ref_id` = `scan_run_id`, `as_of` = when that scan
+completed) per the source-attribution contract in
+[docs/technical-design.md §5](docs/technical-design.md).
+
+```python
+from src.agents.tools.factor_tools import TOOLS, call_tool
+from src.data.db import SessionLocal
+
+with SessionLocal() as db:
+    result = call_tool(db, "compare_tickers", {"tickers": ["MSFT", "GOOGL"]})
+    # result.data matches compare_tickers()'s response shape exactly
+    # result.sources -> [Source(type='factor_score', ticker='MSFT', ref_id=9, as_of=...), ...]
+```
+
+`TOOLS` is the list of tool schemas to pass to the Anthropic Messages API
+(`tools=TOOLS`); `call_tool(db, name, input)` dispatches a `tool_use`
+block's `name`/`input` to the matching implementation and raises
+`ValueError` for an unknown tool or ticker (turning that into a graceful
+response is the Chat/Agent Service's job, not this dispatcher's).
+
+Manual live-model verification (requires `ANTHROPIC_API_KEY` and a
+completed scan in Postgres):
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python -m scripts.manual_test_tool_calling
+```
+
+This sends a comparison question to Claude with both tool schemas
+attached and checks it calls `compare_tickers` rather than answering
+from memory, then executes the real tool call and feeds the result back
+so the final answer can be checked against the actual numbers.
 
 ## Tests
 
