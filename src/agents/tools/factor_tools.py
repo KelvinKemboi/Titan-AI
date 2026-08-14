@@ -53,18 +53,18 @@ COMPARE_TICKERS_SCHEMA = {
 
 TOOLS = [GET_FACTOR_SCORES_SCHEMA, COMPARE_TICKERS_SCHEMA]
 
-
+# scan_run_as_of returns the completed_at timestamp of the ScanRun with the given scan_run_id, or the started_at timestamp if completed_at is None
 def _scan_run_as_of(db: Session, scan_run_id: int):
     scan_run = db.get(ScanRun, scan_run_id)
     if scan_run is None:
         return None
     return scan_run.completed_at or scan_run.started_at
 
-
+# factor_scores_tool_result returns a ToolResult object containing the explanation of the factor scores for a given ticker, along with the source information including the scan_run_id and the as_of timestamp
 def get_factor_scores(db: Session, ticker: str) -> ToolResult:
     """Tool implementation backing GET_FACTOR_SCORES_SCHEMA (#9's Explanation Engine)."""
     explanation = explain_ticker(db, ticker)
-    as_of = _scan_run_as_of(db, explanation.scan_run_id)
+    as_of = _scan_run_as_of(db, explanation.scan_run_id) # retrieves the as_of timestamp for the scan_run_id associated with the explanation
     return ToolResult(
         data=explanation.model_dump(mode="json"),
         sources=[
@@ -77,7 +77,7 @@ def get_factor_scores(db: Session, ticker: str) -> ToolResult:
         ],
     )
 
-
+# compare_tickers_tool_result returns a ToolResult object containing the comparison of factor scores for a list of tickers, along with the source information for each ticker including the scan_run_id and the as_of timestamp
 def compare_tickers(db: Session, tickers: List[str]) -> ToolResult:
     """Tool implementation backing COMPARE_TICKERS_SCHEMA (#8's Comparison Engine)."""
     result = _compare_tickers(db, [t.strip().upper() for t in tickers])
@@ -101,7 +101,7 @@ DISPATCH = {
     "compare_tickers": lambda db, tool_input: compare_tickers(db, tool_input["tickers"]),
 }
 
-
+# call_tool dispatches a tool call to the appropriate implementation based on the tool name and input, raising a ValueError for unrecognized tool names or failed lookups
 def call_tool(db: Session, name: str, tool_input: dict) -> ToolResult:
     """
     Dispatches a Claude tool_use block (`name` + `input`) to its
