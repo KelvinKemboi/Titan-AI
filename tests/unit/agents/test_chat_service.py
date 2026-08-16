@@ -139,5 +139,5 @@ def test_runaway_tool_loop_terminates_gracefully(monkeypatch):
 
 # system prompt enforces "don't use outside knowledge for anything Titan has data for"
 def test_system_prompt_forbids_outside_knowledge():
-    assert "not from your general knowledge or training data" in SYSTEM_PROMPT
+    assert "Do not answer from your general knowledge or training data" in SYSTEM_PROMPT
     assert "rather than answering from general knowledge" in SYSTEM_PROMPT
