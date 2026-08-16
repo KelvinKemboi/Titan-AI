@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock # testing utility for creating mock objects
 
 import anthropic
 import httpx
@@ -137,9 +137,7 @@ def test_runaway_tool_loop_terminates_gracefully(monkeypatch):
     assert mock_call_tool.call_count == MAX_TOOL_ITERATIONS
 
 
-# system prompt enforces "don't use outside knowledge for anything Titan has data
-# for" (technical-design.md §6) - see scripts/manual_test_chat_service.py for the
-# live-model verification with a well-known public fact
+# system prompt enforces "don't use outside knowledge for anything Titan has data for"
 def test_system_prompt_forbids_outside_knowledge():
     assert "not from your general knowledge or training data" in SYSTEM_PROMPT
     assert "rather than answering from general knowledge" in SYSTEM_PROMPT
