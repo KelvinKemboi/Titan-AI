@@ -79,7 +79,7 @@ def get_factor_scores(db: Session, ticker: str) -> ToolResult:
 
 # compare_tickers_tool_result returns a ToolResult object containing the comparison of factor scores for a list of tickers, along with the source information for each ticker including the scan_run_id and the as_of timestamp
 def compare_tickers(db: Session, tickers: List[str]) -> ToolResult:
-    """Tool implementation backing COMPARE_TICKERS_SCHEMA (#8's Comparison Engine)."""
+    """Tool implementation backing COMPARE_TICKERS_SCHEMA."""
     result = _compare_tickers(db, [t.strip().upper() for t in tickers])
     as_of = _scan_run_as_of(db, result.scan_run_id)
     return ToolResult(
@@ -106,9 +106,7 @@ def call_tool(db: Session, name: str, tool_input: dict) -> ToolResult:
     """
     Dispatches a Claude tool_use block (`name` + `input`) to its
     implementation. Raises ValueError for an unrecognized tool name or a
-    failed lookup (e.g. unknown ticker) - turning that into a graceful
-    tool_result error block for the model is the Chat/Agent Service's
-    job (a later issue), not this dispatcher's.
+    failed lookup (e.g. unknown ticker).
     """
     if name not in DISPATCH:
         raise ValueError(f"Unknown tool '{name}'")
