@@ -53,7 +53,7 @@ if st.button("Initialize Market Scan"):
         top_picks = results[:5]
 
         st.divider()
-        st.subheader("The Alpha List (Top 5)")
+        st.subheader("🏆 The Alpha List (Top 5)")
 
         cols = st.columns(5)
         for i, stock in enumerate(top_picks):
