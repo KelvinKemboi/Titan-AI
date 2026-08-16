@@ -1,4 +1,4 @@
-import uuid
+import uuid # for generating unique session IDs
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
@@ -26,13 +26,12 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 def post_chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
-    Exposes the Chat/Agent Service (#11) over HTTP. An omitted `session_id`
-    creates a new one; conversation memory (`chat_sessions`/`chat_messages`,
-    #13) isn't wired up yet, so the returned id is just an identifier for the
+    Exposes the Chat/Agent Service over HTTP. An omitted `session_id`
+    creates a new one; conversation memory (`chat_sessions`/`chat_messages`)
+    isn't wired up yet, so the returned id is just an identifier for the
     client to carry forward - this call is still single-turn under the hood.
 
-    Response time budget (unoptimized - no caching yet; the Redis LLM
-    response cache in #20 is the intended fix): every request is a live call
+    Response time budget: every request is a live call
     chain to the Anthropic API, capped at `MAX_TOOL_ITERATIONS` (5) round
     trips. Budget ~6s p50 / ~12s p95 for the common one-tool-call question (2
     round trips); worst case (several tool-call rounds) budget ~20s. No
