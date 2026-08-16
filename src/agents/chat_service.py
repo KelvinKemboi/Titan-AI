@@ -11,12 +11,11 @@ from src.agents.tools.factor_tools import TOOLS, call_tool
 MODEL = "claude-sonnet-5"
 MAX_TOKENS = 1024
 
-# Safety net against a pathological tool-call loop (e.g. the model repeatedly
-# retrying a failing call) - not expected to be hit in normal use.
+# Safety net against a pathological tool-call loop (e.g. the model repeatedly retrying a failing call)
 MAX_TOOL_ITERATIONS = 5
 
 SYSTEM_PROMPT = """You are Titan's investment research assistant. Answer questions \
-using Titan's own data, retrieved through the tools available to you - not from \
+using Titan's own data, retrieved through the tools available to you. Do not answer from \
 your general knowledge or training data.
 
 For any question about a ticker's factor scores, rating, or how tickers compare, \
@@ -37,10 +36,9 @@ FALLBACK_RESPONSE = (
 )
 
 INCONCLUSIVE_RESPONSE = (
-    "I wasn't able to finish answering that after several tool calls - please "
+    "I wasn't able to finish answering that after several tool calls. Please "
     "try rephrasing your question."
 )
-
 
 class ChatAnswer(BaseModel):
     """Response envelope for one turn: the model's final text plus every
@@ -49,7 +47,7 @@ class ChatAnswer(BaseModel):
     response: str
     sources: List[Source]
 
-
+# block is a tool_use block from the model's response, and _run_tool executes it against the database.
 def _run_tool(db: Session, block) -> tuple:
     """
     Executes one tool_use block and returns (tool_result content block, sources).
@@ -58,8 +56,8 @@ def _run_tool(db: Session, block) -> tuple:
     the failure and can respond to the user in plain language.
     """
     try:
-        result = call_tool(db, block.name, block.input)
-    except ValueError as exc:
+        result = call_tool(db, block.name, block.input) # dispatches to the appropriate tool implementation(either get_factor_scores or compare_tickers)
+    except ValueError as exc: # error handling for failed lookups (e.g. unknown ticker)
         return (
             {
                 "type": "tool_result",
@@ -69,7 +67,7 @@ def _run_tool(db: Session, block) -> tuple:
             },
             [],
         )
-    return (
+    return (#returns a tuple containing the tool_result content block and the sources for the tool call
         {
             "type": "tool_result",
             "tool_use_id": block.id,
@@ -79,15 +77,11 @@ def _run_tool(db: Session, block) -> tuple:
     )
 
 
-def answer_question(
-    db: Session,
-    question: str,
-    *,
-    client: Optional[anthropic.Anthropic] = None,
-) -> ChatAnswer:
+def answer_question( db: Session, question: str, *,
+    client: Optional[anthropic.Anthropic] = None,) -> ChatAnswer:
     """
     Owns a single-turn conversation: sends `question` to the model with the
-    factor-score tools (#10), executes any tool calls against `db`, feeds the
+    factor-score tools, executes any tool calls against `db`, feeds the
     results back, and repeats until the model responds with text instead of a
     tool call. Returns that text with the sources collected along the way.
     """
