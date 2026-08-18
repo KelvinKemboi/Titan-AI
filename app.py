@@ -1,5 +1,7 @@
+import os
 import ssl
 
+import requests
 import streamlit as st
 import plotly.graph_objects as go
 
@@ -10,6 +12,11 @@ from src.analytics.scanner_service import ScanAlreadyRunningError, run_scan_and_
 # CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
 
+# The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP rather
+# than importing the chat service directly, so it stays a thin client of the same /chat contract
+# any other caller uses. Override for a non-default API_PORT or a non-local gateway.
+CHAT_API_URL = os.environ.get("CHAT_API_URL", f"http://localhost:{os.environ.get('API_PORT', '8000')}/chat")
+
 # SSL Bypass for Mac/PC (Fixes "Certificate Verify Failed" errors)
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -17,14 +24,60 @@ ssl._create_default_https_context = ssl._create_unverified_context
 st.title("Titan AI: Market Scanner")
 st.markdown("`Status: Online` | `Model: v4.2 (Value/Momentum)` | `Universe: S&P 500`")
 
+if "chat_session_id" not in st.session_state:
+    st.session_state["chat_session_id"] = None
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+
 # Hidden Sidebar for "Power Users" (You)
 with st.sidebar:
     st.header(" Simulation Settings")
     st.info("The AI runs autonomously. Settings are optimized for the current VIX environment.")
     concurrency = st.slider("Thread Power (Speed vs Safety)", 1, 20, 5)
 
-if st.button("Initialize Market Scan"):
+    st.divider()
+    st.header("Titan Analyst Chat")
+    st.caption("Ask about a ticker's factor scores or compare tickers, backed by the latest scan.")
 
+    chat_log = st.container(height=400)
+    with chat_log:
+        for turn in st.session_state["chat_history"]:
+            with st.chat_message(turn["role"]):
+                st.markdown(turn["content"])
+                for source in turn.get("sources", []):
+                    st.caption(f"Source: {source['ticker']}, scan #{source['ref_id']}")
+
+    chat_prompt = st.chat_input("Ask Titan a question about the market or a specific stock...")
+    if chat_prompt:
+        st.session_state["chat_history"].append({"role": "user", "content": chat_prompt, "sources": []})
+        try:
+            api_response = requests.post(
+                CHAT_API_URL,
+                json={"session_id": st.session_state["chat_session_id"], "message": chat_prompt},
+                timeout=30,
+            )
+            api_response.raise_for_status()
+            payload = api_response.json()
+        except requests.RequestException as exc:
+            st.session_state["chat_history"].append(
+                {
+                    "role": "assistant",
+                    "content": f"Sorry, I couldn't reach Titan's chat service ({exc}).",
+                    "sources": [],
+                }
+            )
+        else:
+            st.session_state["chat_session_id"] = payload["session_id"]
+            st.session_state["chat_history"].append(
+                {
+                    "role": "assistant",
+                    "content": payload["response"],
+                    "sources": payload.get("sources", []),
+                }
+            )
+        st.rerun()
+
+if st.button("Initialize Market Scan"):
     # Get Universe
     with st.status("Connecting to Market Data Streams...", expanded=True) as status:
         st.write("Downloading S&P 500 Index constituents...")
