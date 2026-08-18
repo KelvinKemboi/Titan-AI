@@ -5,6 +5,7 @@ import anthropic
 import httpx
 
 from src.agents.chat_service import (
+    CHAT_HISTORY_WINDOW,
     FALLBACK_RESPONSE,
     INCONCLUSIVE_RESPONSE,
     MAX_TOOL_ITERATIONS,
@@ -12,6 +13,7 @@ from src.agents.chat_service import (
     answer_question,
 )
 from src.agents.tools.base import Source, ToolResult
+from src.data.models import ChatMessage
 
 
 def _text_block(text):
@@ -141,3 +143,61 @@ def test_runaway_tool_loop_terminates_gracefully(monkeypatch):
 def test_system_prompt_forbids_outside_knowledge():
     assert "Do not answer from your general knowledge or training data" in SYSTEM_PROMPT
     assert "rather than answering from general knowledge" in SYSTEM_PROMPT
+
+
+# prior turns are injected ahead of the new question, 
+# so a follow-up carries the earlier conversation into the model call
+def test_history_is_injected_ahead_of_the_new_question():
+    session_id = "11111111-1111-1111-1111-111111111111"
+    history = [
+        ChatMessage(session_id=session_id, role="user", content="Tell me about NVDA"),
+        ChatMessage(session_id=session_id, role="assistant", content="NVDA scores 88/100."),
+    ]
+    client = _client_with_responses(_response([_text_block("Its momentum score is 92/100.")]))
+
+    result = answer_question(
+        db=MagicMock(), question="what about its momentum?", history=history, client=client
+    )
+
+    assert result.response == "Its momentum score is 92/100."
+    sent_messages = client.messages.create.call_args.kwargs["messages"]
+    assert sent_messages == [
+        {"role": "user", "content": "Tell me about NVDA"},
+        {"role": "assistant", "content": "NVDA scores 88/100."},
+        {"role": "user", "content": "what about its momentum?"},
+    ]
+
+
+# omitting history behaves exactly as a fresh conversation
+def test_no_history_starts_a_fresh_conversation():
+    client = _client_with_responses(_response([_text_block("Hi there.")]))
+
+    answer_question(db=MagicMock(), question="hello", client=client)
+
+    sent_messages = client.messages.create.call_args.kwargs["messages"]
+    assert sent_messages == [{"role": "user", "content": "hello"}]
+
+
+# window size (K) is a config value
+def test_history_window_is_configurable_via_env():
+    # runs in a fresh subprocess so it can't leak module-reload state into the rest of the suite
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    env = {**os.environ, "CHAT_HISTORY_WINDOW": "3"}
+    result = subprocess.run(
+        [sys.executable, "-c", "from src.agents.chat_service import CHAT_HISTORY_WINDOW; print(CHAT_HISTORY_WINDOW)"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "3"
+
+
+def test_default_history_window_is_ten():
+    assert CHAT_HISTORY_WINDOW == 10
