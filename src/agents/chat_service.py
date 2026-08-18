@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List, Optional
 
 import anthropic
@@ -7,12 +8,18 @@ from sqlalchemy.orm import Session
 
 from src.agents.tools.base import Source
 from src.agents.tools.factor_tools import TOOLS, call_tool
+from src.data.models import ChatMessage
 
 MODEL = "claude-sonnet-5"
 MAX_TOKENS = 1024
 
 # Safety net against a pathological tool-call loop (e.g. the model repeatedly retrying a failing call)
 MAX_TOOL_ITERATIONS = 5
+
+# Conversation memory (technical-design.md §4): how many prior chat_messages
+# rows to inject as context for a follow-up question - "last 10 turns" MVP
+# default, overridable per environment.
+CHAT_HISTORY_WINDOW = int(os.environ.get("CHAT_HISTORY_WINDOW", "10"))
 
 SYSTEM_PROMPT = """You are Titan's investment research assistant. Answer questions \
 using Titan's own data, retrieved through the tools available to you. Do not answer from \
@@ -77,16 +84,27 @@ def _run_tool(db: Session, block) -> tuple:
     )
 
 
-def answer_question( db: Session, question: str, *,
-    client: Optional[anthropic.Anthropic] = None,) -> ChatAnswer:
+def answer_question(
+    db: Session,
+    question: str,
+    *,
+    history: Optional[List[ChatMessage]] = None,
+    client: Optional[anthropic.Anthropic] = None,
+) -> ChatAnswer:
     """
     Owns a single-turn conversation: sends `question` to the model with the
     factor-score tools, executes any tool calls against `db`, feeds the
     results back, and repeats until the model responds with text instead of a
     tool call. Returns that text with the sources collected along the way.
+
+    `history` is the prior turns for this session (oldest first, e.g. from
+    chat_repository.get_recent_messages) - injected ahead of `question` so
+    follow-ups like "what about its momentum?" resolve against the earlier
+    conversation instead of needing the user to restate context.
     """
     client = client or anthropic.Anthropic()
-    messages = [{"role": "user", "content": question}]
+    messages = [{"role": m.role, "content": m.content} for m in (history or [])]
+    messages.append({"role": "user", "content": question})
     sources: List[Source] = []
 
     for _ in range(MAX_TOOL_ITERATIONS):

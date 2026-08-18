@@ -9,7 +9,7 @@ from sqlalchemy import (
     Text,
     TIMESTAMP,
 ) # datatypes for the columns in the database tables
-from sqlalchemy.dialects.postgresql import JSONB # PostgreSQL-specific JSONB datatype for storing JSON data
+from sqlalchemy.dialects.postgresql import JSONB, UUID # PostgreSQL-specific JSONB/UUID datatypes
 from sqlalchemy.orm import declarative_base # object-relational mapping (ORM) base class for defining models
 from sqlalchemy.sql import func
 
@@ -61,4 +61,34 @@ class FactorScore(Base):
 
     __table_args__ = (
         Index("ix_factor_scores_ticker_computed_at", "ticker", computed_at.desc()),
+    )
+
+# one row per chat conversation
+class ChatSession(Base):
+    """A chat conversation. No auth/ownership yet (#21) - user_id is
+    unpopulated for now."""
+
+    __tablename__ = "chat_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    user_id = Column(String)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+# one row per user/assistant turn in a chat_sessions conversation
+class ChatMessage(Base):
+    """One turn (user question or assistant response) in a chat_sessions
+    conversation - the persisted form of #11's ChatAnswer. `sources`
+    mirrors ToolResult.sources for assistant messages; empty for user ones."""
+
+    __tablename__ = "chat_messages"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
+    role = Column(String, nullable=False)  # user | assistant
+    content = Column(Text, nullable=False)
+    sources = Column(JSONB)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_chat_messages_session_id_created_at", "session_id", "created_at"),
     )
