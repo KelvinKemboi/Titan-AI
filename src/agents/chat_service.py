@@ -16,9 +16,8 @@ MAX_TOKENS = 1024
 # Safety net against a pathological tool-call loop (e.g. the model repeatedly retrying a failing call)
 MAX_TOOL_ITERATIONS = 5
 
-# Conversation memory (technical-design.md §4): how many prior chat_messages
-# rows to inject as context for a follow-up question - "last 10 turns" MVP
-# default, overridable per environment.
+# Conversation memory: how many prior chat_messages
+# rows to inject as context for a follow-up question. "last 10 turns" MVP default
 CHAT_HISTORY_WINDOW = int(os.environ.get("CHAT_HISTORY_WINDOW", "10"))
 
 SYSTEM_PROMPT = """You are Titan's investment research assistant. Answer questions \
@@ -99,8 +98,7 @@ def answer_question(
 
     `history` is the prior turns for this session (oldest first, e.g. from
     chat_repository.get_recent_messages) - injected ahead of `question` so
-    follow-ups like "what about its momentum?" resolve against the earlier
-    conversation instead of needing the user to restate context.
+    follow-ups resolve against the earlier conversation instead of needing the user to restate context.
     """
     client = client or anthropic.Anthropic()
     messages = [{"role": m.role, "content": m.content} for m in (history or [])]

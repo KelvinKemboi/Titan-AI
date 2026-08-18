@@ -145,9 +145,8 @@ def test_system_prompt_forbids_outside_knowledge():
     assert "rather than answering from general knowledge" in SYSTEM_PROMPT
 
 
-# prior turns (technical-design.md §4's last-K window) are injected ahead of
-# the new question, so a follow-up like "what about its momentum?" carries
-# the earlier conversation into the model call
+# prior turns are injected ahead of the new question, 
+# so a follow-up carries the earlier conversation into the model call
 def test_history_is_injected_ahead_of_the_new_question():
     session_id = "11111111-1111-1111-1111-111111111111"
     history = [
@@ -169,7 +168,7 @@ def test_history_is_injected_ahead_of_the_new_question():
     ]
 
 
-# omitting history behaves exactly as a fresh conversation (no regression for #11's single-turn callers)
+# omitting history behaves exactly as a fresh conversation
 def test_no_history_starts_a_fresh_conversation():
     client = _client_with_responses(_response([_text_block("Hi there.")]))
 
@@ -179,11 +178,9 @@ def test_no_history_starts_a_fresh_conversation():
     assert sent_messages == [{"role": "user", "content": "hello"}]
 
 
-# window size (K) is a config value, not hardcoded inline
+# window size (K) is a config value
 def test_history_window_is_configurable_via_env():
-    # runs in a fresh subprocess so it can't leak module-reload state into
-    # the rest of the suite (other test modules already hold references to
-    # src.agents.chat_service's classes/functions)
+    # runs in a fresh subprocess so it can't leak module-reload state into the rest of the suite
     import os
     import subprocess
     import sys

@@ -77,8 +77,7 @@ class ChatSession(Base):
 # one row per user/assistant turn in a chat_sessions conversation
 class ChatMessage(Base):
     """One turn (user question or assistant response) in a chat_sessions
-    conversation - the persisted form of #11's ChatAnswer. `sources`
-    mirrors ToolResult.sources for assistant messages; empty for user ones."""
+    conversation. `sources`mirrors ToolResult.sources for assistant messages; empty for user ones."""
 
     __tablename__ = "chat_messages"
 

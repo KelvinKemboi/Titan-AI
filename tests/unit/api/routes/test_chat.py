@@ -22,7 +22,7 @@ def client(db):
     yield TestClient(app)
     app.dependency_overrides.clear()
 
-
+# omitted session_id creates a new session
 def _stub_session_lookup(monkeypatch, session_uuid, history=None):
     mock_get_or_create = MagicMock(return_value=ChatSession(id=session_uuid))
     mock_get_recent = MagicMock(return_value=history or [])

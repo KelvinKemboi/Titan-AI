@@ -16,11 +16,7 @@ def test_get_or_create_session_without_id_creates_a_new_session():
 
     assert isinstance(session.id, uuid.UUID)
     db.add.assert_called_once_with(session)
-    # a new session must be flushed before any dependent chat_messages insert:
-    # SQLAlchemy only orders flush-time inserts around declared relationship()s,
-    # not bare FK columns, so an un-flushed session row races the message
-    # insert and fails the FK constraint (see scanner_service.py's ScanRun
-    # commit-before-FactorScore pattern for the same issue).
+    # a new session must be flushed before any dependent chat_messages insert
     db.flush.assert_called_once()
 
 

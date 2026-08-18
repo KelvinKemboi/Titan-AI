@@ -26,21 +26,11 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 def post_chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
-    Exposes the Chat/Agent Service over HTTP, with conversation memory
-    (technical-design.md §4): an omitted `session_id` creates a new session;
+    Exposes the Chat/Agent Service over HTTP, with conversation memory:
+    an omitted `session_id` creates a new session;
     a given one (new or existing) is persisted to, and its last
     `CHAT_HISTORY_WINDOW` messages are injected as context so follow-ups
-    ("what about its momentum?") resolve against the earlier conversation.
-    Every call persists both the user message and the assistant response,
-    including its sources.
-
-    Response time budget: every request is a live call chain to the
-    Anthropic API, capped at `MAX_TOOL_ITERATIONS` (5) round trips, plus a
-    handful of small local Postgres queries/writes for session history that
-    are negligible next to that. Budget ~6s p50 / ~12s p95 for the common
-    one-tool-call question (2 round trips); worst case (several tool-call
-    rounds) budget ~20s. No server-side request timeout is enforced yet -
-    this is the baseline #20's response cache should improve on.
+    resolve against the earlier conversation
     """
     try:
         session = get_or_create_session(db, request.session_id)
