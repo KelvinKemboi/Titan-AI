@@ -20,6 +20,5 @@ env/
 .claude/
 .streamlit/
 docs/
-/src/data/migrations
 create_titan_issues.sh
 .env

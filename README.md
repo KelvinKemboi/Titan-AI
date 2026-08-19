@@ -50,9 +50,12 @@ rewrite.
 │   │       ├── company.py      # GET /company/{ticker}
 │   │       └── compare.py      # GET /compare
 │   ├── agents/
+│   │   ├── chat_service.py     # Chat/Agent Service: Claude tool-calling loop + conversation memory
 │   │   └── tools/
 │   │       ├── base.py         # Shared tool contract: every tool returns source metadata
 │   │       └── factor_tools.py # get_factor_scores, compare_tickers Claude tool schemas
+│   ├── embeddings/
+│   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -108,6 +111,17 @@ By default the app connects to
 `postgresql+psycopg2://titan:titan@localhost:5433/titan`. Override with
 the `DATABASE_URL` environment variable to point at a different
 database (e.g. in CI or production).
+
+The `db` service image is `pgvector/pgvector:pg16` - upstream `postgres:16`
+with the [pgvector](https://github.com/pgvector/pgvector) extension
+precompiled, needed for `vector(N)` columns and similarity search
+(Phase 2's `earnings_chunks`, see
+[docs/architecture.md](docs/architecture.md#4-database-schema-initial)). The
+`c902a842d2a8_enable_pgvector_extension` migration runs `CREATE EXTENSION
+IF NOT EXISTS vector` as part of `alembic upgrade head` above - no separate
+step needed. If you're pointing `DATABASE_URL` at a Postgres instance other
+than the `db` service, it must have pgvector installed for that migration
+to succeed.
 
 ## Scheduled scanning
 
@@ -235,6 +249,32 @@ This sends a comparison question to Claude with both tool schemas
 attached and checks it calls `compare_tickers` rather than answering
 from memory, then executes the real tool call and feeds the result back
 so the final answer can be checked against the actual numbers.
+
+## Embeddings
+
+`src/embeddings/service.py` is the one place text gets turned into a
+vector - both this milestone's pgvector setup and Phase 2's earnings-chunk
+ingestion (docs/architecture.md #2, #6) call it rather than hitting an
+embeddings API directly.
+
+```python
+from src.embeddings.service import embed_text, embed_texts
+
+vector = embed_text("NVDA's Q3 guidance raised on strong datacenter demand")
+vectors = embed_texts(chunks, input_type="document")  # batched automatically, any length
+query_vector = embed_texts([question], input_type="query")[0]  # tuned for search, not storage
+```
+
+Model/dimension: [Voyage AI](https://www.voyageai.com/) - Anthropic's own
+recommended embeddings partner, since Anthropic doesn't host embedding
+models itself - `voyage-large-2`, chosen specifically because it natively
+outputs 1536-dimensional vectors matching `vector(1536)` on
+`earnings_chunks.embedding` (docs/architecture.md #4) with no
+`output_dimension` override required. Requires a `VOYAGE_API_KEY`
+environment variable (get one at
+[dash.voyageai.com](https://dash.voyageai.com/)); batching (up to 128 texts
+per request, the API's own cap) and retry (rate limits/timeouts, exponential
+backoff) are handled internally.
 
 ## Tests
 
