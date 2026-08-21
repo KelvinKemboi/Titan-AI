@@ -1,3 +1,4 @@
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -12,6 +13,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID # PostgreSQL-specific JSONB/UUID datatypes
 from sqlalchemy.orm import declarative_base # object-relational mapping (ORM) base class for defining models
 from sqlalchemy.sql import func
+
+from src.embeddings.service import EMBEDDING_DIMENSION
 
 Base = declarative_base()
 
@@ -90,4 +93,29 @@ class ChatMessage(Base):
 
     __table_args__ = (
         Index("ix_chat_messages_session_id_created_at", "session_id", "created_at"),
+    )
+
+# one row per ticker per scan run: the embedded analyst memo (RoboAnalyst.generate_memo()
+# output) - Titan's first qualitative retrieval source (docs/architecture.md #2, #6)
+class MemoEmbedding(Base):
+    """Embedded RoboAnalyst.generate_memo() text for one ticker in one scan
+    run, searched by src/analytics/memo_search.py (cosine similarity) and
+    exposed to chat via the search_memos tool
+    (src/agents/tools/memo_tools.py)."""
+
+    __tablename__ = "memo_embeddings"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticker = Column(String, ForeignKey("companies.ticker"), nullable=False)
+    scan_run_id = Column(BigInteger, ForeignKey("scan_runs.id"), nullable=False)
+    memo_text = Column(Text, nullable=False)
+    embedding = Column(Vector(EMBEDDING_DIMENSION), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ix_memo_embeddings_ticker_scan_run_id",
+            "ticker", "scan_run_id",
+            unique=True,
+        ),
     )

@@ -12,6 +12,7 @@ python-dotenv>=1.0
 sqlalchemy>=2.0
 alembic>=1.13
 psycopg2-binary>=2.9
+pgvector>=0.3
 
 # for scheduling scans and factor score computations
 apscheduler>=3.10

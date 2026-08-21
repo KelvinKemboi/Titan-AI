@@ -39,7 +39,9 @@ rewrite.
 │   ├── analytics/
 │   │   ├── scanner_service.py  # Runs + persists a scan (scan_runs, factor_scores, companies)
 │   │   ├── scheduler.py        # Runs the scan on a recurring (hourly) schedule
-│   │   └── explain.py          # Factor Score Explanation Engine (per-factor score/weight/driver)
+│   │   ├── explain.py          # Factor Score Explanation Engine (per-factor score/weight/driver)
+│   │   ├── memo_indexing.py    # Embeds + upserts each scan's analyst memos (memo_embeddings)
+│   │   └── memo_search.py      # Cosine-similarity search over memo_embeddings
 │   ├── api/
 │   │   ├── main.py             # FastAPI app + router registration
 │   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
@@ -52,12 +54,14 @@ rewrite.
 │   ├── agents/
 │   │   ├── chat_service.py     # Chat/Agent Service: Claude tool-calling loop + conversation memory
 │   │   └── tools/
+│   │       ├── __init__.py     # Aggregates every tool submodule's TOOLS/DISPATCH into one registry
 │   │       ├── base.py         # Shared tool contract: every tool returns source metadata
-│   │       └── factor_tools.py # get_factor_scores, compare_tickers Claude tool schemas
+│   │       ├── factor_tools.py # get_factor_scores, compare_tickers Claude tool schemas
+│   │       └── memo_tools.py   # search_memos Claude tool schema (qualitative retrieval)
 │   ├── embeddings/
 │   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
 │   └── data/
-│       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores
+│       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
 │       └── migrations/     # Alembic migrations
 ├── scripts/
@@ -222,7 +226,7 @@ completed) per the source-attribution contract in
 [docs/technical-design.md §5](docs/technical-design.md).
 
 ```python
-from src.agents.tools.factor_tools import TOOLS, call_tool
+from src.agents.tools import TOOLS, call_tool  # aggregates every tools/*.py submodule
 from src.data.db import SessionLocal
 
 with SessionLocal() as db:
@@ -236,6 +240,9 @@ with SessionLocal() as db:
 block's `name`/`input` to the matching implementation and raises
 `ValueError` for an unknown tool or ticker (turning that into a graceful
 response is the Chat/Agent Service's job, not this dispatcher's).
+`src/agents/tools/__init__.py` is the registry: it merges `TOOLS`/`DISPATCH`
+from every submodule (`factor_tools.py`, `memo_tools.py` below, ...) so
+adding a new tool category doesn't touch `chat_service.py`.
 
 Manual live-model verification (requires `ANTHROPIC_API_KEY` and a
 completed scan in Postgres):
@@ -249,6 +256,37 @@ This sends a comparison question to Claude with both tool schemas
 attached and checks it calls `compare_tickers` rather than answering
 from memory, then executes the real tool call and feeds the result back
 so the final answer can be checked against the actual numbers.
+
+### Memo Search (qualitative retrieval)
+
+`src/agents/tools/memo_tools.py` defines `search_memos(query)`: semantic
+search over `memo_embeddings` - one embedded `RoboAnalyst.generate_memo()`
+writeup per ticker per scan, Titan's first qualitative retrieval source
+(alongside the numeric `get_factor_scores`/`compare_tickers` above). Use
+it for questions with no single named ticker to key off of - "which
+companies have a deep competitive moat" - where the structured tools
+have nothing to look up.
+
+`src/analytics/memo_indexing.py:index_memos()` embeds + upserts every
+scan's memos automatically as the last step of
+`scanner_service.run_scan_and_persist()` (embedding failures are logged
+and swallowed there, not raised - a scan's factor scores still count as
+persisted even if Voyage is briefly unreachable). For data scanned
+before this existed, backfill the latest run instead of re-scanning:
+
+```bash
+export VOYAGE_API_KEY="..."
+python -m scripts.backfill_memo_embeddings
+```
+
+Manual live-model verification that a qualitative question actually
+routes to `search_memos` rather than the structured tools (requires
+`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, and at least one scan with indexed
+memos):
+
+```bash
+python -m scripts.manual_test_memo_search
+```
 
 ## Embeddings
 
