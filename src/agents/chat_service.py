@@ -57,13 +57,15 @@ class ChatAnswer(BaseModel):
 def _run_tool(db: Session, block) -> tuple:
     """
     Executes one tool_use block and returns (tool_result content block, sources).
-    A failed lookup (ValueError from call_tool - see factor_tools.call_tool) is
-    turned into an `is_error` tool_result instead of raising, so the model sees
-    the failure and can respond to the user in plain language.
+    Any failure - a ValueError from call_tool (e.g. unknown ticker) or an
+    unexpected one (e.g. a transient DB error, or search_memos' Voyage API
+    call failing) - is turned into an `is_error` tool_result instead of
+    raising, so the model sees the failure and can respond to the user in
+    plain language rather than the request surfacing as a raw 500.
     """
     try:
-        result = call_tool(db, block.name, block.input) # dispatches to the appropriate tool implementation(either get_factor_scores or compare_tickers)
-    except ValueError as exc: # error handling for failed lookups (e.g. unknown ticker)
+        result = call_tool(db, block.name, block.input) # dispatches to the matching tool implementation (registered in src.agents.tools)
+    except Exception as exc: # any tool failure, expected (ValueError) or not
         return (
             {
                 "type": "tool_result",

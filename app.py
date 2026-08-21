@@ -26,6 +26,10 @@ if "chat_session_id" not in st.session_state:
     st.session_state["chat_session_id"] = None
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
+# None = no scan run yet this session; persisted across reruns (e.g. a chat
+# message's st.rerun()) so the results below don't vanish on the next rerun.
+if "scan_results" not in st.session_state:
+    st.session_state["scan_results"] = None
 
 # Hidden Sidebar for "Power Users" (You)
 with st.sidebar:
@@ -93,56 +97,62 @@ if st.button("Initialize Market Scan"):
         try:
             results = run_scan_and_persist(tickers, concurrency=concurrency, on_progress=on_progress)
         except ScanAlreadyRunningError:
-            results = None
+            # Nothing new happened - leave any previously-scanned results on screen rather than blanking them.
             status.update(label="A scan is already in progress - try again shortly.", state="error", expanded=False)
+        except Exception:
+            # Ditto: a failed attempt shouldn't erase a still-valid earlier scan's results.
+            status.update(label="Scan failed - check the app logs for details.", state="error", expanded=False)
         else:
             status.update(label="Scan Complete!", state="complete", expanded=False)
+            st.session_state["scan_results"] = results
 
-    # Results Display
-    if results:
-        # Sort by Score
-        results.sort(key=lambda x: x.score, reverse=True)
-        top_picks = results[:5]
+# Rendered from session_state (not the button block above) so results persist
+# across reruns triggered elsewhere on the page (e.g. the chat's st.rerun()).
+results = st.session_state["scan_results"]
+if results:
+    # Sort by Score
+    results.sort(key=lambda x: x.score, reverse=True)
+    top_picks = results[:5]
 
-        st.divider()
-        st.subheader("The Alpha List (Top 5)")
+    st.divider()
+    st.subheader("The Alpha List (Top 5)")
 
-        cols = st.columns(5)
-        for i, stock in enumerate(top_picks):
-            with cols[i]:
-                st.metric(
-                    label=stock.ticker,
-                    value=f"${stock.metrics['Price']:.2f}",
-                    delta=f"Score: {int(stock.score)}",
+    cols = st.columns(5)
+    for i, stock in enumerate(top_picks):
+        with cols[i]:
+            st.metric(
+                label=stock.ticker,
+                value=f"${stock.metrics['Price']:.2f}",
+                delta=f"Score: {int(stock.score)}",
+            )
+            st.caption(f"{stock.metrics['Trend']}")
+
+    st.divider()
+    st.subheader("Detailed Analyst Reports")
+
+    # Only show top 30 to keep browser fast
+    for stock in results[:30]:
+        with st.expander(f"**{stock.ticker}** | Score: {int(stock.score)}"):
+            col1, col2 = st.columns([1.5, 1])
+            with col1:
+                st.markdown(stock.memo)
+            with col2:
+                # Radar Chart Visualization
+                categories = list(WEIGHTS.keys())
+                values = stock.metrics['Scores']
+
+                fig = go.Figure(data=go.Scatterpolar(
+                    r=values, theta=categories, fill='toself',
+                    line=dict(color='#00CC96'),
+                ))
+                fig.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                    showlegend=False,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    height=250,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
                 )
-                st.caption(f"{stock.metrics['Trend']}")
-
-        st.divider()
-        st.subheader("Detailed Analyst Reports")
-
-        # Only show top 30 to keep browser fast
-        for stock in results[:30]:
-            with st.expander(f"**{stock.ticker}** | Score: {int(stock.score)}"):
-                col1, col2 = st.columns([1.5, 1])
-                with col1:
-                    st.markdown(stock.memo)
-                with col2:
-                    # Radar Chart Visualization
-                    categories = list(WEIGHTS.keys())
-                    values = stock.metrics['Scores']
-
-                    fig = go.Figure(data=go.Scatterpolar(
-                        r=values, theta=categories, fill='toself',
-                        line=dict(color='#00CC96'),
-                    ))
-                    fig.update_layout(
-                        polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                        showlegend=False,
-                        margin=dict(t=20, b=20, l=20, r=20),
-                        height=250,
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                    )
-                    st.plotly_chart(fig, use_container_width=True, key=f"radar-{stock.ticker}")
-    elif results is not None:
-        st.error("Scan failed. Check your internet connection or try again later.")
+                st.plotly_chart(fig, use_container_width=True, key=f"radar-{stock.ticker}")
+elif results is not None:
+    st.error("Scan failed. Check your internet connection or try again later.")

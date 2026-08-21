@@ -45,6 +45,11 @@ def embed_texts(
     for start in range(0, len(texts), _BATCH_SIZE):
         batch = texts[start : start + _BATCH_SIZE]
         result = client.embed(batch, model=EMBEDDING_MODEL, input_type=input_type)
+        if len(result.embeddings) != len(batch):
+            raise ValueError(
+                f"Voyage returned {len(result.embeddings)} embeddings for a batch of "
+                f"{len(batch)} texts - refusing to return a misaligned result"
+            )
         embeddings.extend(result.embeddings)
     return embeddings
 

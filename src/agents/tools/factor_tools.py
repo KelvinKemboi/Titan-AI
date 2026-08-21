@@ -80,7 +80,19 @@ def get_factor_scores(db: Session, ticker: str) -> ToolResult:
 # compare_tickers_tool_result returns a ToolResult object containing the comparison of factor scores for a list of tickers, along with the source information for each ticker including the scan_run_id and the as_of timestamp
 def compare_tickers(db: Session, tickers: List[str]) -> ToolResult:
     """Tool implementation backing COMPARE_TICKERS_SCHEMA."""
-    result = _compare_tickers(db, [t.strip().upper() for t in tickers])
+    # Dedupe (mirroring src/api/routes/compare.py's get_compare route): without
+    # this, ["MSFT", "msft"] normalizes to two identical entries, which passes
+    # _compare_tickers' "at least 2 found" check as a degenerate "MSFT vs MSFT"
+    # comparison (every delta 0) instead of the intended distinct-ticker error.
+    seen = set()
+    deduped = []
+    for t in tickers:
+        normalized = t.strip().upper()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            deduped.append(normalized)
+
+    result = _compare_tickers(db, deduped)
     as_of = _scan_run_as_of(db, result.scan_run_id)
     return ToolResult(
         data=result.model_dump(mode="json"),
@@ -100,14 +112,3 @@ DISPATCH = {
     "get_factor_scores": lambda db, tool_input: get_factor_scores(db, tool_input["ticker"]),
     "compare_tickers": lambda db, tool_input: compare_tickers(db, tool_input["tickers"]),
 }
-
-# call_tool dispatches a tool call to the appropriate implementation based on the tool name and input, raising a ValueError for unrecognized tool names or failed lookups
-def call_tool(db: Session, name: str, tool_input: dict) -> ToolResult:
-    """
-    Dispatches a Claude tool_use block (`name` + `input`) to its
-    implementation. Raises ValueError for an unrecognized tool name or a
-    failed lookup (e.g. unknown ticker).
-    """
-    if name not in DISPATCH:
-        raise ValueError(f"Unknown tool '{name}'")
-    return DISPATCH[name](db, tool_input)

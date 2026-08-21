@@ -83,6 +83,28 @@ def test_tool_call_failure_produces_graceful_response(monkeypatch):
     assert "ZZZZ" in tool_result_block["content"]
 
 
+# an unexpected (non-ValueError) tool failure - e.g. search_memos' embed_text call hitting a
+# Voyage API error - must degrade the same way as a known ValueError, not propagate as a raw 500
+def test_unexpected_tool_exception_produces_graceful_response_not_a_raw_error(monkeypatch):
+    mock_call_tool = MagicMock(side_effect=RuntimeError("Voyage API unreachable"))
+    monkeypatch.setattr("src.agents.chat_service.call_tool", mock_call_tool)
+
+    client = _client_with_responses(
+        _response([_tool_use_block("t1", "search_memos", {"query": "deep competitive moats"})]),
+        _response([_text_block("I ran into a problem searching for that - please try again.")]),
+    )
+
+    result = answer_question(db=MagicMock(), question="Which companies have deep moats?", client=client)
+
+    assert result.response == "I ran into a problem searching for that - please try again."
+    assert result.sources == []
+
+    second_call_messages = client.messages.create.call_args_list[1].kwargs["messages"]
+    tool_result_block = second_call_messages[-1]["content"][0]
+    assert tool_result_block["is_error"] is True
+    assert "Voyage API unreachable" in tool_result_block["content"]
+
+
 # multiple tool_use blocks in one assistant turn are all executed and their
 # results returned together in a single user message (parallel tool use contract)
 def test_multiple_tool_calls_in_one_turn_are_batched(monkeypatch):

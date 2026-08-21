@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 
@@ -14,6 +15,16 @@ from titan.analyst import RoboAnalyst
 # A `running` scan_runs row older than this is assumed to belong to a
 # crashed process, not an in-progress scan, so it no longer blocks new runs.
 STALE_RUN_THRESHOLD = timedelta(hours=2)
+
+# Arbitrary constant identifying the "is a scan already running" critical
+# section for Postgres advisory locking - any int64 works, as long as it's
+# not reused for an unrelated lock elsewhere in the app (none exist today).
+# Held only across _blocking_run()'s check + the new ScanRun insert below
+# (released at the following commit, since it's transaction-scoped), so two
+# near-simultaneous callers (the hourly scheduler and a manual "Initialize
+# Market Scan" click) can't both pass the check before either has committed -
+# closes a TOCTOU race between the SELECT and the INSERT.
+_SCAN_RUN_LOCK_KEY = 727100
 
 
 class ScanAlreadyRunningError(Exception):
@@ -142,6 +153,11 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
     """
     session = SessionLocal()
     try:
+        # Held for the remainder of this transaction (through the commit
+        # right after the ScanRun insert below) so the check-then-insert
+        # below is atomic across concurrent callers.
+        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SCAN_RUN_LOCK_KEY})
+
         blocking = _blocking_run(session)
         if blocking is not None:
             raise ScanAlreadyRunningError(
