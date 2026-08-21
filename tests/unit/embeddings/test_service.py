@@ -9,7 +9,6 @@ from src.embeddings.service import (
     embed_texts,
 )
 
-
 def _vector(seed):
     return [float(seed)] * EMBEDDING_DIMENSION
 

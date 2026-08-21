@@ -1,15 +1,5 @@
 """
-Reusable text-embedding helper backing this milestone's pgvector setup and
-Phase 2's earnings-chunk ingestion (docs/architecture.md #2, #4, #6).
-
-Model/dimension choice: Anthropic has no embeddings endpoint of its own and
-names Voyage AI as its recommended embeddings partner, so it's the natural
-pairing for a chat stack already built on `anthropic` (src/agents/chat_service.py).
-`voyage-large-2` is pinned specifically (over newer voyage-3.x models) because
-it natively outputs EMBEDDING_DIMENSION=1536 floats with no `output_dimension`
-override - matching `vector(1536)` on `earnings_chunks.embedding`
-(architecture.md #4) exactly. If that column width ever changes, this
-constant and EMBEDDING_DIMENSION must change together.
+Reusable text-embedding helper
 """
 from typing import List, Optional
 
@@ -23,7 +13,7 @@ EMBEDDING_DIMENSION = 1536
 _BATCH_SIZE = voyageai.VOYAGE_EMBED_BATCH_SIZE
 
 # Retries (exponential backoff with jitter) on rate limits/timeouts/transient
-# 5xxs are handled by voyageai.Client itself - this just sets how many.
+# 5xxs are handled by voyageai.Client itself 
 _MAX_RETRIES = 5
 
 
