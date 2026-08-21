@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 
+from src.analytics.memo_indexing import index_memos
 from src.data.db import SessionLocal
 from src.data.models import Company, FactorScore, ScanRun
 from titan.analyst import RoboAnalyst
@@ -159,6 +160,10 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
             for result in results:
                 _upsert_company(session, result)
                 _save_factor_score(session, scan_run.id, result)
+            # Embeds + persists each memo for semantic search (search_memos tool).
+            # Failures inside are logged and swallowed there, not raised - a scan's
+            # factor scores must still count as persisted even if this doesn't.
+            index_memos(session, scan_run.id, results)
         except Exception:
             session.rollback() # Rollback the session in case of an exception to avoid partial commits
             scan_run.status = "failed"
