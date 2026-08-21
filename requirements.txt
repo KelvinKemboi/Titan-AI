@@ -25,3 +25,6 @@ pytest>=8.0
 
 # for Claude tool-use (chat/agent LLM tools)
 anthropic>=0.40
+
+# for text embeddings (Anthropic's recommended embeddings partner - see src/embeddings/service.py)
+voyageai>=0.3

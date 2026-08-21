@@ -12,9 +12,7 @@ from src.analytics.scanner_service import ScanAlreadyRunningError, run_scan_and_
 # CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
 
-# The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP rather
-# than importing the chat service directly, so it stays a thin client of the same /chat contract
-# any other caller uses. Override for a non-default API_PORT or a non-local gateway.
+# The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP
 CHAT_API_URL = os.environ.get("CHAT_API_URL", f"http://localhost:{os.environ.get('API_PORT', '8000')}/chat")
 
 # SSL Bypass for Mac/PC (Fixes "Certificate Verify Failed" errors)
@@ -39,7 +37,7 @@ with st.sidebar:
     st.header("Titan Analyst Chat")
     st.caption("Ask about a ticker's factor scores or compare tickers, backed by the latest scan.")
 
-    chat_log = st.container(height=400)
+    chat_log = st.container(height=400) # container to hold the chat messages
     with chat_log:
         for turn in st.session_state["chat_history"]:
             with st.chat_message(turn["role"]):
@@ -50,7 +48,7 @@ with st.sidebar:
     chat_prompt = st.chat_input("Ask Titan a question about the market or a specific stock...")
     if chat_prompt:
         st.session_state["chat_history"].append({"role": "user", "content": chat_prompt, "sources": []})
-        try:
+        try: # Call the FastAPI backend to get a response from the AI model
             api_response = requests.post(
                 CHAT_API_URL,
                 json={"session_id": st.session_state["chat_session_id"], "message": chat_prompt},
@@ -58,6 +56,7 @@ with st.sidebar:
             )
             api_response.raise_for_status()
             payload = api_response.json()
+        #handle network errors and inform the user
         except requests.RequestException as exc:
             st.session_state["chat_history"].append(
                 {
