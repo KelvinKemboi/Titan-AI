@@ -16,6 +16,36 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
 
+# Streamlit has no built-in "sidebar on the right" option - the sidebar and
+# main content are flex siblings (stAppViewContainer, flex-direction: row),
+# so swapping their visual order does it. The expand toggle (shown only
+# while the sidebar is collapsed) lives separately in the top header/toolbar,
+# not inside the sidebar itself, so it needs its own rule to follow along;
+# the collapse toggle (shown while expanded) is inside the sidebar and moves
+# with it automatically.
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] { order: 1; }
+    /* Streamlit collapses the sidebar by translating it -100% (off the LEFT edge of its
+       own box) - since its own width shrinks to 0 at the same time, a relative-% override
+       here would resolve against that same 0, so this uses a viewport-relative offset
+       instead (robust regardless of the sidebar's configured/resized width). */
+    [data-testid="stSidebar"][aria-expanded="false"] { transform: translateX(100vw) !important; }
+    /* The expand toggle lives 3 levels deep in unlabeled flex wrapper divs inside the
+       header, alongside the Deploy/menu buttons - rather than depend on that nested
+       structure, detach it from flow and pin it to the header's top-right corner. */
+    [data-testid="stExpandSidebarButton"] {
+        position: fixed;
+        top: 0.6rem;
+        right: 8rem; /* clears the Deploy button + menu icon group pinned to the far right */
+        left: auto !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP
 CHAT_API_URL = os.environ.get("CHAT_API_URL", f"http://localhost:{os.environ.get('API_PORT', '8000')}/chat")
 
