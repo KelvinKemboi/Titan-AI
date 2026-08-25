@@ -13,8 +13,20 @@ from src.analytics.scanner_service import ScanAlreadyRunningError, run_scan_and_
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# None = no scan run yet this session. Read before set_page_config so the
+# sidebar (Simulation Settings + chat) can auto-expand - "pop up" - the
+# first time a scan produces results, and stay inaccessible (collapsed,
+# toggle hidden) before that, rather than always being peekable.
+if "scan_results" not in st.session_state:
+    st.session_state["scan_results"] = None
+has_results = st.session_state["scan_results"] is not None
+
 # CONFIGURATION & SETUP
-st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="Titan: AI Hedge Fund",
+    layout="wide",
+    initial_sidebar_state="expanded" if has_results else "collapsed",
+)
 
 # Streamlit has no built-in "sidebar on the right" option - the sidebar and
 # main content are flex siblings (stAppViewContainer, flex-direction: row),
@@ -24,23 +36,26 @@ st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sid
 # the collapse toggle (shown while expanded) is inside the sidebar and moves
 # with it automatically.
 st.markdown(
-    """
+    f"""
     <style>
-    [data-testid="stSidebar"] { order: 1; }
+    [data-testid="stSidebar"] {{ order: 1; }}
     /* Streamlit collapses the sidebar by translating it -100% (off the LEFT edge of its
        own box) - since its own width shrinks to 0 at the same time, a relative-% override
        here would resolve against that same 0, so this uses a viewport-relative offset
        instead (robust regardless of the sidebar's configured/resized width). */
-    [data-testid="stSidebar"][aria-expanded="false"] { transform: translateX(100vw) !important; }
+    [data-testid="stSidebar"][aria-expanded="false"] {{ transform: translateX(100vw) !important; }}
     /* The expand toggle lives 3 levels deep in unlabeled flex wrapper divs inside the
        header, alongside the Deploy/menu buttons - rather than depend on that nested
-       structure, detach it from flow and pin it to the header's top-right corner. */
-    [data-testid="stExpandSidebarButton"] {
+       structure, detach it from flow and pin it to the header's top-right corner.
+       Hidden entirely until a scan has completed, so there's no way to peek at the
+       sidebar early - it only becomes reachable once it's auto-expanded itself. */
+    [data-testid="stExpandSidebarButton"] {{
         position: fixed;
         top: 0.6rem;
         right: 8rem; /* clears the Deploy button + menu icon group pinned to the far right */
         left: auto !important;
-    }
+        {"display: none !important;" if not has_results else ""}
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -60,10 +75,6 @@ if "chat_session_id" not in st.session_state:
     st.session_state["chat_session_id"] = None
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
-# None = no scan run yet this session; persisted across reruns (e.g. a chat
-# message's st.rerun()) so the results below don't vanish on the next rerun.
-if "scan_results" not in st.session_state:
-    st.session_state["scan_results"] = None
 
 # Hidden Sidebar for "Power Users" (You)
 with st.sidebar:
@@ -142,6 +153,12 @@ if st.button("Initialize Market Scan"):
         else:
             status.update(label="Scan Complete!", state="complete", expanded=False)
             st.session_state["scan_results"] = results
+            # Without this, `has_results` at the top of *this* run was already
+            # computed (stale, still False) before set_page_config ran, so the
+            # sidebar's auto-expand request wouldn't take effect until some
+            # later, unrelated rerun. Forcing one here makes it "pop up"
+            # immediately once results exist, matching set_page_config's request.
+            st.rerun()
 
 # Rendered from session_state (not the button block above) so results persist
 # across reruns triggered elsewhere on the page (e.g. the chat's st.rerun()).
