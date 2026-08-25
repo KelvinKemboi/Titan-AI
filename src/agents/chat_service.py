@@ -6,6 +6,7 @@ import anthropic
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.agents.intent_classifier import INTENT_HINTS, classify_intent
 from src.agents.tools import TOOLS, call_tool
 from src.agents.tools.base import Source
 from src.data.models import ChatMessage
@@ -85,34 +86,33 @@ def _run_tool(db: Session, block) -> tuple:
     )
 
 
-def answer_question(
-    db: Session,
-    question: str,
-    *,
-    history: Optional[List[ChatMessage]] = None,
-    client: Optional[anthropic.Anthropic] = None,
-) -> ChatAnswer:
+def answer_question( db: Session, question: str, *, history: Optional[List[ChatMessage]] = None,
+                    client: Optional[anthropic.Anthropic] = None,) -> ChatAnswer:
     """
     Owns a single-turn conversation: sends `question` to the model with the
     factor-score tools, executes any tool calls against `db`, feeds the
     results back, and repeats until the model responds with text instead of a
-    tool call. Returns that text with the sources collected along the way.
-
-    `history` is the prior turns for this session (oldest first, e.g. from
-    chat_repository.get_recent_messages) - injected ahead of `question` so
-    follow-ups resolve against the earlier conversation instead of needing the user to restate context.
+    tool call. Returns that text with the sources collected along the way
     """
-    client = client or anthropic.Anthropic()
-    messages = [{"role": m.role, "content": m.content} for m in (history or [])]
+    client = client or anthropic.Anthropic() # if no client is provided, create a new instance of the Anthropics API client
+    intent = classify_intent(question) # classifies the user's question to determine the intent, which may influence how the system prompt is constructed
+    system_prompt = SYSTEM_PROMPT
+    if intent in INTENT_HINTS: # if the intent is one of the known intents, append the corresponding hint to the system prompt
+        system_prompt = (
+            f"{SYSTEM_PROMPT}\n\n{INTENT_HINTS[intent]} "
+            "This is a hint, not a restriction - use whichever tool actually answers the question."
+        )
+
+    messages = [{"role": m.role, "content": m.content} for m in (history or [])] # initialize the messages list with the chat history as a list of dictionaries
     messages.append({"role": "user", "content": question})
     sources: List[Source] = []
 
     for _ in range(MAX_TOOL_ITERATIONS):
-        try:
+        try: # Call the model with the system prompt, tools, and messages
             response = client.messages.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 tools=TOOLS,
                 messages=messages,
             )
@@ -122,7 +122,7 @@ def answer_question(
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
         if not tool_use_blocks:
             text = "".join(b.text for b in response.content if b.type == "text")
-            return ChatAnswer(response=text, sources=sources)
+            return ChatAnswer(response=text, sources=sources) # if there are no tool_use blocks, return the model's text response along with the collected sources
 
         messages.append({"role": "assistant", "content": response.content})
 

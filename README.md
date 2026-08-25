@@ -53,6 +53,7 @@ rewrite.
 │   │       └── compare.py      # GET /compare
 │   ├── agents/
 │   │   ├── chat_service.py     # Chat/Agent Service: Claude tool-calling loop + conversation memory
+│   │   ├── intent_classifier.py # classify_intent: cheap/fast routing hint (structured|qualitative|comparison)
 │   │   └── tools/
 │   │       ├── __init__.py     # Aggregates every tool submodule's TOOLS/DISPATCH into one registry
 │   │       ├── base.py         # Shared tool contract: every tool returns source metadata
@@ -287,6 +288,33 @@ memos):
 ```bash
 python -m scripts.manual_test_memo_search
 ```
+
+### Intent Classification
+
+`src/agents/intent_classifier.py:classify_intent(question)` is
+technical-design.md §6 step 1: a cheap/fast model call
+(`claude-haiku-4-5-20251001`, forced via `tool_choice` into a
+`structured | qualitative | comparison` enum) that runs once per turn,
+before the Chat/Agent Service decides which tools to foreground.
+
+This is a **hint, not a gate**: `answer_question()` folds the result into
+the system prompt (`INTENT_HINTS`) but always passes every tool
+(`get_factor_scores`, `compare_tickers`, `search_memos`) regardless of
+what was classified - per the risk technical-design.md §6 calls out,
+a wrong guess must never make a tool unreachable. Any classifier failure
+(API error, rate limit, a missing key) returns `None`, and the turn
+proceeds with the plain system prompt rather than blocking.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python -m scripts.eval_intent_classifier
+```
+
+Runs `scripts/eval_intent_classifier.py`'s ~30 hand-written questions (10
+per category, including the three phase-1 example questions from the
+product brief) against the live classifier and reports per-category
+accuracy plus latency (mean/median/min/max) - re-run this after any prompt
+or model change.
 
 ## Embeddings
 

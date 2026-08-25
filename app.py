@@ -1,3 +1,4 @@
+import logging
 import os
 import ssl
 
@@ -8,6 +9,9 @@ import plotly.graph_objects as go
 from titan.config import WEIGHTS
 from titan.data import get_sp500_tickers
 from src.analytics.scanner_service import ScanAlreadyRunningError, run_scan_and_persist
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 # CONFIGURATION & SETUP
 st.set_page_config(page_title="Titan: AI Hedge Fund", layout="wide", initial_sidebar_state="collapsed")
@@ -101,6 +105,9 @@ if st.button("Initialize Market Scan"):
             status.update(label="A scan is already in progress - try again shortly.", state="error", expanded=False)
         except Exception:
             # Ditto: a failed attempt shouldn't erase a still-valid earlier scan's results.
+            # Logged here since this is the only place the actual exception is visible -
+            # the UI message intentionally doesn't leak internals to the browser.
+            logger.exception("Initialize Market Scan failed")
             status.update(label="Scan failed - check the app logs for details.", state="error", expanded=False)
         else:
             status.update(label="Scan Complete!", state="complete", expanded=False)

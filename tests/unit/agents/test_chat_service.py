@@ -3,6 +3,7 @@ from unittest.mock import MagicMock # testing utility for creating mock objects
 
 import anthropic
 import httpx
+import pytest
 
 from src.agents.chat_service import (
     CHAT_HISTORY_WINDOW,
@@ -12,8 +13,15 @@ from src.agents.chat_service import (
     SYSTEM_PROMPT,
     answer_question,
 )
+from src.agents.tools import TOOLS
 from src.agents.tools.base import Source, ToolResult
 from src.data.models import ChatMessage
+
+
+# automatically patches classify_intent to return None for all tests in this module
+@pytest.fixture(autouse=True)
+def _no_intent_classification(monkeypatch):
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", MagicMock(return_value=None))
 
 
 def _text_block(text):
@@ -75,16 +83,14 @@ def test_tool_call_failure_produces_graceful_response(monkeypatch):
     assert result.response == "I couldn't find any data for ZZZZ - could you double-check the ticker?"
     assert result.sources == []
 
-    # the error must have been fed back to the model as an is_error tool_result,
-    # not raised out of answer_question
+    # the error must have been fed back to the model as an is_error tool_result
     second_call_messages = client.messages.create.call_args_list[1].kwargs["messages"]
     tool_result_block = second_call_messages[-1]["content"][0]
     assert tool_result_block["is_error"] is True
     assert "ZZZZ" in tool_result_block["content"]
 
 
-# an unexpected (non-ValueError) tool failure - e.g. search_memos' embed_text call hitting a
-# Voyage API error - must degrade the same way as a known ValueError, not propagate as a raw 500
+# an unexpected (non-ValueError) tool failure
 def test_unexpected_tool_exception_produces_graceful_response_not_a_raw_error(monkeypatch):
     mock_call_tool = MagicMock(side_effect=RuntimeError("Voyage API unreachable"))
     monkeypatch.setattr("src.agents.chat_service.call_tool", mock_call_tool)
@@ -223,3 +229,40 @@ def test_history_window_is_configurable_via_env():
 
 def test_default_history_window_is_ten():
     assert CHAT_HISTORY_WINDOW == 10
+
+
+# a classified intent is injected into the system prompt as a routing hint
+def test_classified_intent_adds_a_hint_to_the_system_prompt(monkeypatch):
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", MagicMock(return_value="qualitative"))
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=MagicMock(), question="Which companies have deep moats?", client=client)
+
+    system_sent = client.messages.create.call_args.kwargs["system"]
+    assert "search_memos" in system_sent
+    assert "hint, not a restriction" in system_sent
+
+
+# a classified intent that is not one of the known intents does not add a hint
+def test_all_tools_remain_available_regardless_of_classified_intent(monkeypatch):
+    for guessed_intent in ["structured", "qualitative", "comparison", None]:
+        monkeypatch.setattr(
+            "src.agents.chat_service.classify_intent", MagicMock(return_value=guessed_intent)
+        )
+        client = _client_with_responses(_response([_text_block("Answer.")]))
+
+        answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
+
+        tools_sent = client.messages.create.call_args.kwargs["tools"]
+        assert tools_sent == TOOLS
+        assert {t["name"] for t in tools_sent} == {"get_factor_scores", "compare_tickers", "search_memos"}
+
+
+# a classifier that returns nothing- falls back to the unmodified system prompt 
+def test_no_classified_intent_leaves_system_prompt_unmodified(monkeypatch):
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", MagicMock(return_value=None))
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
+
+    assert client.messages.create.call_args.kwargs["system"] == SYSTEM_PROMPT
