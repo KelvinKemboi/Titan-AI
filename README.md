@@ -53,6 +53,7 @@ rewrite.
 │   │       └── compare.py      # GET /compare
 │   ├── agents/
 │   │   ├── chat_service.py     # Chat/Agent Service: Claude tool-calling loop + conversation memory
+│   │   ├── entity_tracker.py   # extract_entities: tickers/factors mentioned, for pronoun resolution
 │   │   ├── intent_classifier.py # classify_intent: cheap/fast routing hint (structured|qualitative|comparison)
 │   │   └── tools/
 │   │       ├── __init__.py     # Aggregates every tool submodule's TOOLS/DISPATCH into one registry
@@ -315,6 +316,39 @@ per category, including the three phase-1 example questions from the
 product brief) against the live classifier and reports per-category
 accuracy plus latency (mean/median/min/max) - re-run this after any prompt
 or model change.
+
+### Conversation Memory (entity tracking)
+
+`src/agents/entity_tracker.py:extract_entities(history)` is
+technical-design.md §4's missing piece: the last-K-turns window
+(`CHAT_HISTORY_WINDOW`) already gives the model raw context for free, but
+nothing that reliably grounds a pronoun follow-up ("what about its
+momentum?"). This scans a session's `history` for tickers - from each
+assistant turn's already-verified `sources`, not regex/NLP over free text,
+so a ticker Titan never actually looked up can't be mis-tracked - and
+factors (matched by name against the closed `WEIGHTS` vocabulary). The
+result is an `EntityState` (`last_ticker`, `last_factor`, plus full
+mention history) that `answer_question()` folds into the system prompt as
+a one-line grounding hint (`entity_hint()`) - the same advisory pattern as
+intent classification above: it biases resolution, it never replaces the
+model's own reasoning.
+
+`EntityState` is a flat pydantic model - `model_dump_json()` is the whole
+debug view - and `answer_question()` logs it every turn, so an incorrect
+pronoun resolution is debuggable from the logs after the fact: what did
+the system think "it" referred to, and why.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python -m scripts.eval_conversation_memory
+```
+
+Runs `scripts/eval_conversation_memory.py`'s 5 hand-written 3-turn
+conversations (ticker question → pronoun follow-up → comparison) through
+the real Chat/Agent Service with real Postgres persistence between turns,
+checking each turn's *sources* - not just response text - cite the
+ticker(s) the pronoun should have resolved to, and prints the entity
+state before each turn for debugging.
 
 ## Embeddings
 

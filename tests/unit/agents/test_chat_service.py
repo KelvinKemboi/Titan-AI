@@ -258,7 +258,7 @@ def test_all_tools_remain_available_regardless_of_classified_intent(monkeypatch)
         assert {t["name"] for t in tools_sent} == {"get_factor_scores", "compare_tickers", "search_memos"}
 
 
-# a classifier that returns nothing- falls back to the unmodified system prompt 
+# a classifier that returns nothing- falls back to the unmodified system prompt
 def test_no_classified_intent_leaves_system_prompt_unmodified(monkeypatch):
     monkeypatch.setattr("src.agents.chat_service.classify_intent", MagicMock(return_value=None))
     client = _client_with_responses(_response([_text_block("Answer.")]))
@@ -266,3 +266,55 @@ def test_no_classified_intent_leaves_system_prompt_unmodified(monkeypatch):
     answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
 
     assert client.messages.create.call_args.kwargs["system"] == SYSTEM_PROMPT
+
+
+# a ticker cited in an earlier turn's sources grounds a pronoun follow-up via the
+# system prompt (technical-design.md #4's entity tracking), not just the raw history
+def test_entity_from_prior_sourced_turn_adds_a_hint_to_the_system_prompt():
+    session_id = "22222222-2222-2222-2222-222222222222"
+    history = [
+        ChatMessage(session_id=session_id, role="user", content="Tell me about NVDA"),
+        ChatMessage(
+            session_id=session_id, role="assistant", content="NVDA scores 88/100.",
+            sources=[{"type": "factor_score", "ticker": "NVDA", "ref_id": 1, "as_of": None}],
+        ),
+    ]
+    client = _client_with_responses(_response([_text_block("Its momentum is 92/100.")]))
+
+    answer_question(db=MagicMock(), question="what about its momentum?", history=history, client=client)
+
+    system_sent = client.messages.create.call_args.kwargs["system"]
+    assert "Most recently discussed ticker this session: NVDA" in system_sent
+    assert "pronoun" in system_sent
+
+
+# history with no sourced turns (e.g. the model answered from memory, or nothing asked
+# yet) has nothing to ground a pronoun in, so no entity hint is added
+def test_no_entity_hint_when_no_prior_turn_has_sources():
+    history = [
+        ChatMessage(session_id="s", role="user", content="Tell me about NVDA"),
+        ChatMessage(session_id="s", role="assistant", content="NVDA scores 88/100.", sources=[]),
+    ]
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=MagicMock(), question="what about its momentum?", history=history, client=client)
+
+    assert client.messages.create.call_args.kwargs["system"] == SYSTEM_PROMPT
+
+
+# entity state is logged every turn so an incorrect resolution is debuggable after the
+# fact - what did the system think "it" referred to, and why
+def test_entity_state_is_logged_for_debugging(caplog):
+    session_id = "33333333-3333-3333-3333-333333333333"
+    history = [
+        ChatMessage(
+            session_id=session_id, role="assistant", content="NVDA scores 88/100.",
+            sources=[{"type": "factor_score", "ticker": "NVDA", "ref_id": 1, "as_of": None}],
+        ),
+    ]
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    with caplog.at_level("INFO", logger="src.agents.chat_service"):
+        answer_question(db=MagicMock(), question="what about its momentum?", history=history, client=client)
+
+    assert any("NVDA" in record.message for record in caplog.records)

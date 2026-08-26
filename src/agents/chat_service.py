@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import List, Optional
 
@@ -6,10 +7,13 @@ import anthropic
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.agents.entity_tracker import entity_hint, extract_entities
 from src.agents.intent_classifier import INTENT_HINTS, classify_intent
 from src.agents.tools import TOOLS, call_tool
 from src.agents.tools.base import Source
 from src.data.models import ChatMessage
+
+logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-5"
 MAX_TOKENS = 1024
@@ -102,6 +106,17 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
             f"{SYSTEM_PROMPT}\n\n{INTENT_HINTS[intent]} "
             "This is a hint, not a restriction - use whichever tool actually answers the question."
         )
+
+    # Explicit entity memory (technical-design.md #4): grounds pronoun/ellipsis
+    # follow-ups ("what about its momentum?") in whichever ticker/factor was
+    # last discussed, rather than relying on the model to re-derive that from
+    # raw history alone. Logged so incorrect resolutions are debuggable after
+    # the fact - what did the system think "it" referred to, and why.
+    entities = extract_entities(history or [])
+    logger.info("chat entity state for this turn: %s", entities.model_dump_json())
+    hint = entity_hint(entities)
+    if hint:
+        system_prompt = f"{system_prompt}\n\n{hint}"
 
     messages = [{"role": m.role, "content": m.content} for m in (history or [])] # initialize the messages list with the chat history as a list of dictionaries
     messages.append({"role": "user", "content": question})
