@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 
 from src.analytics.memo_indexing import index_memos
+from src.data.cache import invalidate_scan_caches
 from src.data.db import SessionLocal
 from src.data.models import Company, FactorScore, ScanRun
 from titan.analyst import RoboAnalyst
@@ -195,6 +196,11 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
             scan_run.status = "complete"
         scan_run.completed_at = func.now()
         session.commit()
+
+        # Invalidate only after the results above are durably committed
+        # ensures that any subsequent reads of /rankings or /company/{ticker} will see the new data, not stale cached data.
+        if results:
+            invalidate_scan_caches([r.ticker for r in results])
 
         return results
     finally:

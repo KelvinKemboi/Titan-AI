@@ -65,6 +65,7 @@ rewrite.
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
+│       ├── cache.py        # Redis cache for /rankings + /company/{ticker}, reads REDIS_URL
 │       └── migrations/     # Alembic migrations
 ├── scripts/
 │   └── manual_test_tool_calling.py  # Live Claude tool-use verification
@@ -128,6 +129,29 @@ IF NOT EXISTS vector` as part of `alembic upgrade head` above - no separate
 step needed. If you're pointing `DATABASE_URL` at a Postgres instance other
 than the `db` service, it must have pgvector installed for that migration
 to succeed.
+
+## Redis (caching)
+
+`GET /rankings` and `GET /company/{ticker}` (`src/api/routes/`) cache their
+reads through `src/data/cache.py`, invalidated on scan completion rather
+than a fixed TTL (architecture.md §8) - `scanner_service.run_scan_and_persist`
+calls `invalidate_scan_caches(tickers)` once a scan's results are committed,
+clearing every `/rankings` sort-order key plus one `/company/{ticker}` key
+per ticker the scan actually updated.
+
+```bash
+# Start local Redis (maps to host port 6380 to avoid clashing with any
+# Redis you already have on 6379)
+docker compose up -d redis
+```
+
+By default the app connects to `redis://localhost:6380/0`. Override with
+the `REDIS_URL` environment variable. Redis is optional for correctness,
+not just for local dev: every cache operation degrades to "no cache" (a
+DB read) on any failure - unreachable, timeout, whatever - so an outage
+means slower responses, never a 500. There's nothing to migrate or seed;
+the first read after `docker compose up -d redis` just populates the
+cache normally.
 
 ## Scheduled scanning
 

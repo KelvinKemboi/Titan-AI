@@ -18,5 +18,17 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      # 6380 (not the default 6379) to avoid clashing with any Redis already
+      # running locally, same reasoning as the db service's 5433 mapping.
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   titan_pg_data:

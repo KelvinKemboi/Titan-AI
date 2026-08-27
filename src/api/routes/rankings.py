@@ -2,11 +2,12 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.api.deps import get_db
+from src.data.cache import cache_get, cache_set, rankings_cache_key
 from src.data.models import FactorScore
 
 router = APIRouter()
@@ -36,6 +37,9 @@ class RankingItem(BaseModel):
     volatility_score: Optional[float] = None
     rating: Optional[str] = None
 
+# (De)serializes the cached JSON blob 
+_rankings_adapter = TypeAdapter(List[RankingItem])
+
 # API endpoint to get the latest scan's factor scores, sorted by composite_score in descending order
 @router.get("/rankings", response_model=List[RankingItem])
 def get_rankings(
@@ -58,14 +62,25 @@ def get_rankings(
             )
         sort_column = _FACTOR_COLUMNS[key]
 
+    # cache hit returns a list of RankingItem objects from Redis
+    cache_key = rankings_cache_key(factor)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return _rankings_adapter.validate_json(cached)
+
     # Get the latest scan_run_id from the FactorScore table
     latest_scan_run_id = db.query(func.max(FactorScore.scan_run_id)).scalar()
     if latest_scan_run_id is None:
         return []
     # Query the FactorScore table for all rows with the latest scan_run_id, sorted by the specified factor's score (or composite_score) in descending order, and return the results as a list of RankingItem objects
-    return (
-        db.query(FactorScore)
-        .filter(FactorScore.scan_run_id == latest_scan_run_id)
-        .order_by(sort_column.desc(), FactorScore.ticker.asc())
-        .all()
-    )
+    items = [
+        RankingItem.model_validate(row)
+        for row in (
+            db.query(FactorScore)
+            .filter(FactorScore.scan_run_id == latest_scan_run_id)
+            .order_by(sort_column.desc(), FactorScore.ticker.asc())
+            .all()
+        )
+    ]
+    cache_set(cache_key, _rankings_adapter.dump_json(items).decode())
+    return items

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from src.api.deps import get_db
+from src.data.cache import cache_get, cache_set, company_cache_key
 from src.data.models import Company, FactorScore
 
 router = APIRouter()
@@ -39,6 +40,12 @@ def get_company(ticker: str, db: Session = Depends(get_db)):
     """Company profile joined with its latest factor_scores row."""
     ticker = ticker.strip().upper()
 
+    # A cache hit will return a CompanyDetail object from Redis
+    cache_key = company_cache_key(ticker)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return CompanyDetail.model_validate_json(cached)
+
     company = db.get(Company, ticker) # fetches the company record from the database using the provided ticker symbol
     if company is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticker '{ticker}'")
@@ -50,7 +57,7 @@ def get_company(ticker: str, db: Session = Depends(get_db)):
         .first()
     )
     # returns a CompanyDetail object populated with the company profile and its latest factor scores, or None for the score fields if no factor score is found
-    return CompanyDetail(
+    detail = CompanyDetail(
         ticker=company.ticker,
         name=company.name,
         sector=company.sector,
@@ -67,3 +74,5 @@ def get_company(ticker: str, db: Session = Depends(get_db)):
         rating=latest_score.rating if latest_score else None,
         raw_metrics=latest_score.raw_metrics if latest_score else None,
     )
+    cache_set(cache_key, detail.model_dump_json())
+    return detail
