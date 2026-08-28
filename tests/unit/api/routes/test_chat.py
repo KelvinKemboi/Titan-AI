@@ -6,9 +6,13 @@ from fastapi.testclient import TestClient
 
 from src.agents.chat_service import ChatAnswer
 from src.agents.tools.base import Source
+from src.api import auth
+from src.api.auth import get_current_user
 from src.api.deps import get_db
 from src.api.main import app
 from src.data.models import ChatMessage, ChatSession
+
+TEST_USER_ID = "test-user"
 
 
 @pytest.fixture
@@ -16,15 +20,24 @@ def db():
     return MagicMock()
 
 
+# Auth is orthogonal to what most of these tests check- override it to a fixed caller by default, same as get_db
 @pytest.fixture
 def client(db):
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: TEST_USER_ID
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def unauthenticated_client(db):
     app.dependency_overrides[get_db] = lambda: db
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 # omitted session_id creates a new session
 def _stub_session_lookup(monkeypatch, session_uuid, history=None):
-    mock_get_or_create = MagicMock(return_value=ChatSession(id=session_uuid))
+    mock_get_or_create = MagicMock(return_value=ChatSession(id=session_uuid, user_id=TEST_USER_ID))
     mock_get_recent = MagicMock(return_value=history or [])
     mock_add_message = MagicMock()
     monkeypatch.setattr("src.api.routes.chat.get_or_create_session", mock_get_or_create)
@@ -65,6 +78,8 @@ def test_chat_without_session_id_creates_a_new_session(monkeypatch, client):
     assert resp.json()["session_id"] == str(session_uuid)
     # session_id was omitted, so the repository is asked to create a fresh one
     assert mock_get_or_create.call_args.args[1] is None
+    # ...owned by the authenticated caller
+    assert mock_get_or_create.call_args.args[2] == TEST_USER_ID
 
 
 # every /chat call persists both the user message and assistant response, including sources
@@ -126,3 +141,51 @@ def test_chat_with_invalid_session_id_returns_400(monkeypatch, client):
     resp = client.post("/chat", json={"session_id": "not-a-uuid", "message": "hello"})
 
     assert resp.status_code == 400
+
+
+# a session_id owned by a different user is rejected, not silently served
+def test_chat_with_another_users_session_id_returns_403(monkeypatch, client):
+    monkeypatch.setattr(
+        "src.api.routes.chat.get_or_create_session",
+        MagicMock(side_effect=PermissionError("session_id 'x' does not belong to this caller")),
+    )
+
+    resp = client.post("/chat", json={"session_id": str(uuid.uuid4()), "message": "hello"})
+
+    assert resp.status_code == 403
+
+
+# auth (real get_current_user dependency, not overridden)
+@pytest.fixture(autouse=True)
+def _api_keys(monkeypatch):
+    monkeypatch.setattr(auth, "_API_KEYS", {"valid-key": TEST_USER_ID})
+
+
+def test_chat_without_auth_header_returns_401(unauthenticated_client):
+    resp = unauthenticated_client.post("/chat", json={"message": "hello"})
+
+    assert resp.status_code == 401
+
+
+def test_chat_with_an_unknown_api_key_returns_401(unauthenticated_client):
+    resp = unauthenticated_client.post(
+        "/chat", json={"message": "hello"}, headers={"Authorization": "Bearer wrong-key"}
+    )
+
+    assert resp.status_code == 401
+
+
+# a valid key resolves to the user_id that ends up owning the session
+def test_chat_with_a_valid_api_key_creates_a_session_owned_by_that_user(unauthenticated_client, db, monkeypatch):
+    monkeypatch.setattr(
+        "src.api.routes.chat.answer_question", MagicMock(return_value=ChatAnswer(response="hi", sources=[]))
+    )
+
+    resp = unauthenticated_client.post(
+        "/chat", json={"message": "hello"}, headers={"Authorization": "Bearer valid-key"}
+    )
+
+    assert resp.status_code == 200
+    created_session = db.add.call_args_list[0].args[0]
+    assert isinstance(created_session, ChatSession)
+    assert created_session.user_id == TEST_USER_ID

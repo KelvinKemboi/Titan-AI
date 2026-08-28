@@ -46,6 +46,7 @@ rewrite.
 │   │   ├── main.py             # FastAPI app + router registration
 │   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
 │   │   ├── deps.py             # Shared FastAPI dependencies (e.g. get_db)
+│   │   ├── auth.py             # get_current_user: MVP API-key auth, reads API_KEYS
 │   │   └── routes/
 │   │       ├── health.py       # GET /health - DB connectivity check
 │   │       ├── rankings.py     # GET /rankings
@@ -210,7 +211,41 @@ curl "http://localhost:8000/compare?tickers=MSFT,GOOGL"
 # scan_run_id - a ticker missing from that run is listed in missing_tickers
 # rather than silently compared using stale data; 400 if fewer than 2 of the
 # requested tickers have data in the latest scan
+
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer alice-key-123" -H "Content-Type: application/json" \
+  -d '{"message": "Why is AAPL rated a BUY?"}'
+# {"response": "...", "sources": [...], "session_id": "<uuid>"}
+# 401 without a valid Authorization header - see "Auth" below. Omit
+# session_id to start a new conversation; pass a previous session_id back
+# to continue it - as long as it's yours (see "Auth").
 ```
+
+### Auth
+
+Every `/chat` request needs `Authorization: Bearer <key>` - see
+`src/api/auth.py:get_current_user`. This is a deliberately minimal MVP
+scheme (a fixed set of keys sourced from one env var), not a placeholder
+for something more built out in that same file later; swapping in a real
+identity provider means replacing `get_current_user`'s body; every
+route just depends on it and gets a `user_id` string back, unchanged.
+
+```bash
+# .env - "user_id:key" pairs, comma-separated
+API_KEYS=alice:alice-key-123,bob:bob-key-456
+```
+
+Unset/empty `API_KEYS` means *no* key validates - the API fails closed
+(every `/chat` request 401s) rather than open when misconfigured, never
+silently allowing unauthenticated access.
+
+The resolved `user_id` is what `chat_sessions.user_id` gets set to
+(`src/data/chat_repository.py:get_or_create_session`) - replacing what
+used to be an always-empty placeholder column, so sessions are now
+actually scoped per caller rather than shared/anonymous. Passing a
+`session_id` that exists but belongs to a *different* `user_id` is a 403,
+not a silent read of someone else's conversation - one user must never be
+able to see (or extend) another's chat history this way.
 
 ### Factor Score Explanation Engine
 

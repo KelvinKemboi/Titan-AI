@@ -68,8 +68,11 @@ class FactorScore(Base):
 
 # one row per chat conversation
 class ChatSession(Base):
-    """A chat conversation. No auth/ownership yet (#21) - user_id is
-    unpopulated for now."""
+    """A chat conversation, owned by the authenticated caller (src/api/auth.py's
+    MVP API-key scheme) - chat_repository.get_or_create_session sets user_id on
+    every new row and rejects a request for an existing session_id owned by a
+    different user_id. Nullable at the DB level only for rows created before
+    auth existed; every new row always has one."""
 
     __tablename__ = "chat_sessions"
 

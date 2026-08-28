@@ -8,25 +8,26 @@ from src.data.chat_repository import add_message, get_or_create_session, get_rec
 from src.data.models import ChatMessage, ChatSession
 
 
-# omitted session_id creates a new session
+# omitted session_id creates a new session, owned by the authenticated caller
 def test_get_or_create_session_without_id_creates_a_new_session():
     db = MagicMock()
 
-    session = get_or_create_session(db, None)
+    session = get_or_create_session(db, None, "alice")
 
     assert isinstance(session.id, uuid.UUID)
+    assert session.user_id == "alice"
     db.add.assert_called_once_with(session)
     # a new session must be flushed before any dependent chat_messages insert
     db.flush.assert_called_once()
 
 
-def test_get_or_create_session_with_known_id_returns_the_existing_row():
+def test_get_or_create_session_with_known_id_owned_by_caller_returns_the_existing_row():
     db = MagicMock()
     session_uuid = uuid.uuid4()
-    existing = ChatSession(id=session_uuid)
+    existing = ChatSession(id=session_uuid, user_id="alice")
     db.get.return_value = existing
 
-    session = get_or_create_session(db, str(session_uuid))
+    session = get_or_create_session(db, str(session_uuid), "alice")
 
     assert session is existing
     db.get.assert_called_once_with(ChatSession, session_uuid)
@@ -34,14 +35,28 @@ def test_get_or_create_session_with_known_id_returns_the_existing_row():
     db.flush.assert_not_called()
 
 
-def test_get_or_create_session_with_unused_id_creates_it_with_that_id():
+# a session_id that exists but belongs to a different user must never be handed
+# back (or extended) - that would leak one user's conversation into another's
+def test_get_or_create_session_owned_by_another_user_raises_permission_error():
+    db = MagicMock()
+    session_uuid = uuid.uuid4()
+    db.get.return_value = ChatSession(id=session_uuid, user_id="alice")
+
+    with pytest.raises(PermissionError):
+        get_or_create_session(db, str(session_uuid), "bob")
+
+    db.add.assert_not_called()
+
+
+def test_get_or_create_session_with_unused_id_creates_it_owned_by_the_caller():
     db = MagicMock()
     session_uuid = uuid.uuid4()
     db.get.return_value = None
 
-    session = get_or_create_session(db, str(session_uuid))
+    session = get_or_create_session(db, str(session_uuid), "alice")
 
     assert session.id == session_uuid
+    assert session.user_id == "alice"
     db.add.assert_called_once_with(session)
     db.flush.assert_called_once()
 
@@ -50,7 +65,7 @@ def test_get_or_create_session_rejects_a_non_uuid_session_id():
     db = MagicMock()
 
     with pytest.raises(ValueError):
-        get_or_create_session(db, "not-a-uuid")
+        get_or_create_session(db, "not-a-uuid", "alice")
 
     db.add.assert_not_called()
 

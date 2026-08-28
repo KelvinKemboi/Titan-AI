@@ -7,15 +7,20 @@ from src.agents.tools.base import Source
 from src.data.models import ChatMessage, ChatSession
 
 
-def get_or_create_session(db: Session, session_id: Optional[str]) -> ChatSession:
+def get_or_create_session(db: Session, session_id: Optional[str], user_id: str) -> ChatSession:
     """
-    Returns the ChatSession for `session_id`. Omitted -> a fresh session
-    (new random id). Provided but not yet used -> created with that id, so a
-    client can pick its own session_id up front. Raises ValueError if
-    `session_id` isn't a valid UUID. A newly created row is also flushed immediately.
+    Returns the ChatSession for `session_id`, scoped to `user_id` (the
+    authenticated caller - see src/api/auth.py). Omitted `session_id` -> a
+    fresh session (new random id) owned by `user_id`. Provided but not yet
+    used -> created with that id, owned by `user_id`, so a client can pick
+    its own session_id up front. Raises ValueError if `session_id` isn't a
+    valid UUID. A newly created row is also flushed immediately.
+
+    Raises PermissionError if `session_id` already exists and belongs to a
+    *different* user_id 
     """
     if session_id is None:
-        session = ChatSession(id=uuid.uuid4())
+        session = ChatSession(id=uuid.uuid4(), user_id=user_id)
         db.add(session)
         db.flush()
         return session
@@ -27,9 +32,13 @@ def get_or_create_session(db: Session, session_id: Optional[str]) -> ChatSession
 
     session = db.get(ChatSession, session_uuid)
     if session is None:
-        session = ChatSession(id=session_uuid)
+        session = ChatSession(id=session_uuid, user_id=user_id)
         db.add(session)
         db.flush()
+        return session
+
+    if session.user_id != user_id:
+        raise PermissionError(f"session_id '{session_id}' does not belong to this caller")
     return session
 
 
