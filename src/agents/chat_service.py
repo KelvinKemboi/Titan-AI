@@ -5,13 +5,15 @@ from typing import List, Optional
 
 import anthropic
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.agents.entity_tracker import entity_hint, extract_entities
 from src.agents.intent_classifier import INTENT_HINTS, classify_intent
 from src.agents.tools import TOOLS, call_tool
 from src.agents.tools.base import Source
-from src.data.models import ChatMessage
+from src.data.cache import cache_get, cache_set, chat_cache_key
+from src.data.models import ChatMessage, FactorScore
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +99,25 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
     factor-score tools, executes any tool calls against `db`, feeds the
     results back, and repeats until the model responds with text instead of a
     tool call. Returns that text with the sources collected along the way
+
+    FAQ-style response cache: when `history` is empty
+   `question` is looked up by src.data.cache.chat_cache_key(question, data_version)
+    before anything else and a hit is returned immediately with its originally-
+    cached sources. `data_version` is the latest scan_run_id, so a new
+    scan changes the key and the old entry is simply never looked up
+    again (see chat_cache_key's docstring for why that's simpler than an
+    explicit invalidation call).
     """
     client = client or anthropic.Anthropic() # if no client is provided, create a new instance of the Anthropics API client
+
+    cache_key = None
+    if not history:
+        data_version = db.query(func.max(FactorScore.scan_run_id)).scalar()
+        cache_key = chat_cache_key(question, data_version)
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return ChatAnswer.model_validate_json(cached)
+
     intent = classify_intent(question) # classifies the user's question to determine the intent, which may influence how the system prompt is constructed
     system_prompt = SYSTEM_PROMPT
     if intent in INTENT_HINTS: # if the intent is one of the known intents, append the corresponding hint to the system prompt
@@ -107,11 +126,9 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
             "This is a hint, not a restriction - use whichever tool actually answers the question."
         )
 
-    # Explicit entity memory (technical-design.md #4): grounds pronoun/ellipsis
+    # Explicit entity memory: grounds pronoun/ellipsis
     # follow-ups ("what about its momentum?") in whichever ticker/factor was
-    # last discussed, rather than relying on the model to re-derive that from
-    # raw history alone. Logged so incorrect resolutions are debuggable after
-    # the fact - what did the system think "it" referred to, and why.
+    # last discussed
     entities = extract_entities(history or [])
     logger.info("chat entity state for this turn: %s", entities.model_dump_json())
     hint = entity_hint(entities)
@@ -137,7 +154,10 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
         if not tool_use_blocks:
             text = "".join(b.text for b in response.content if b.type == "text")
-            return ChatAnswer(response=text, sources=sources) # if there are no tool_use blocks, return the model's text response along with the collected sources
+            answer = ChatAnswer(response=text, sources=sources) # if there are no tool_use blocks, return the model's text response along with the collected sources
+            if cache_key is not None:
+                cache_set(cache_key, answer.model_dump_json())
+            return answer
 
         messages.append({"role": "assistant", "content": response.content})
 

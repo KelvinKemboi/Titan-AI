@@ -108,3 +108,27 @@ def test_invalidate_scan_caches_with_no_tickers_still_invalidates_rankings(monke
 
     (called_keys,), _ = mock_invalidate.call_args
     assert len(list(called_keys)) == len(cache.RANKINGS_SORT_KEYS)
+
+
+# chat_cache_key
+def test_chat_cache_key_is_stable_for_the_same_question_and_version():
+    assert cache.chat_cache_key("Explain AAPL's score", 42) == cache.chat_cache_key("Explain AAPL's score", 42)
+
+
+def test_chat_cache_key_normalizes_case_and_whitespace():
+    assert cache.chat_cache_key("  Explain AAPL's Score  ", 42) == cache.chat_cache_key("explain aapl's score", 42)
+
+
+def test_chat_cache_key_differs_for_different_questions():
+    assert cache.chat_cache_key("Explain AAPL's score", 42) != cache.chat_cache_key("Explain MSFT's score", 42)
+
+
+# the data version (latest scan_run_id) must be part of the key - otherwise a new
+# scan would never actually invalidate a previously-cached chat answer
+def test_chat_cache_key_differs_across_data_versions():
+    assert cache.chat_cache_key("Explain AAPL's score", 42) != cache.chat_cache_key("Explain AAPL's score", 43)
+
+
+def test_chat_cache_key_handles_a_missing_data_version_without_crashing():
+    key = cache.chat_cache_key("Explain AAPL's score", None)
+    assert key.startswith("chat:v1:none:")

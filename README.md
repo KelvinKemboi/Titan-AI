@@ -374,6 +374,43 @@ checking each turn's *sources* - not just response text - cite the
 ticker(s) the pronoun should have resolved to, and prints the entity
 state before each turn for debugging.
 
+### Chat Response Cache
+
+FAQ-style questions ("what are the strongest momentum stocks today") get
+re-asked by many different sessions between scans, so `answer_question()`
+(`src/agents/chat_service.py`) caches the full response - text and
+sources together - through `src/data/cache.py:chat_cache_key(question,
+data_version)`, where `data_version` is the latest `scan_run_id`. A cache
+hit returns immediately, before intent classification, entity extraction,
+or any model call. Only a genuinely successful, model-completed answer is
+cached - never `FALLBACK_RESPONSE` (a transient API failure) or
+`INCONCLUSIVE_RESPONSE` (an unresolved tool-call loop); neither is a fact
+worth reusing.
+
+**Read this before touching the cache path**: it is keyed *only* on the
+question's own text plus the data version - nothing session-specific.
+That's only safe for a context-free question, i.e. the first turn of a
+session with no prior `history`. A follow-up ("what about its momentum?")
+depends on which ticker/factor came up earlier in that specific session
+(entity tracking, above) - two sessions can phrase a follow-up
+identically while meaning two different tickers, and a key built from
+the text alone can't distinguish them. `answer_question()` therefore
+never computes or uses this cache key when `history` is non-empty - full
+stop, no exceptions, no attempt to make the key "smart enough" to
+disambiguate. This is the one thing the caching design's own acceptance
+criteria calls out as easy to get subtly wrong; see
+`test_questions_with_history_never_touch_the_cache` in
+`tests/unit/agents/test_chat_service.py` for the regression test that
+locks it in.
+
+Unlike the rankings/company cache above, there's no explicit invalidation
+call: a question can be any string, so there's no fixed, enumerable key
+set to bulk-delete the way there is for rankings' handful of sort orders.
+Instead, `data_version` is embedded directly in the key - a new scan
+changes it, and every key from the old version simply becomes
+unreachable, aging out via the same TTL backstop as everything else in
+`src/data/cache.py`.
+
 ## Embeddings
 
 `src/embeddings/service.py` is the one place text gets turned into a

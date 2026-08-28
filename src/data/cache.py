@@ -1,9 +1,11 @@
 """
-Redis cache for read-heavy endpoints: /rankings and
-/company/{ticker}. Invalidated on scan completion (scanner_service.py's
+Redis cache for read-heavy endpoints: /rankings, /company/{ticker}, and
+/chat. Invalidated on scan completion (scanner_service.py's
 run_scan_and_persist calls invalidate_scan_caches once results are
-committed to Postgres)
+committed to Postgres), or - for /chat - by construction, since its cache
+key embeds the data version directly (see chat_cache_key below).
 """
+import hashlib
 import logging
 import os
 from typing import Iterable, List, Optional
@@ -88,3 +90,17 @@ def invalidate_scan_caches(tickers: List[str]) -> None:
     keys = [rankings_cache_key(f) for f in RANKINGS_SORT_KEYS]
     keys += [company_cache_key(t) for t in tickers]
     invalidate(keys)
+
+
+_CHAT_KEY_PREFIX = "chat:v1"
+def chat_cache_key(question: str, data_version: Optional[int]) -> str:
+    """
+    FAQ-style /chat response cache key: sha256(normalized question) +
+    data_version (the latest scan_run_id at the time of the request.
+    `data_version` is embedded directly in the key rather than invalidated 
+    via an explicit delete, so a new scan automatically invalidates all previous entries
+    """
+    normalized = question.strip().lower()
+    digest = hashlib.sha256(normalized.encode()).hexdigest()[:32]
+    version = data_version if data_version is not None else "none"
+    return f"{_CHAT_KEY_PREFIX}:{version}:{digest}"

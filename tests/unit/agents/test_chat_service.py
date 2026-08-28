@@ -11,10 +11,12 @@ from src.agents.chat_service import (
     INCONCLUSIVE_RESPONSE,
     MAX_TOOL_ITERATIONS,
     SYSTEM_PROMPT,
+    ChatAnswer,
     answer_question,
 )
 from src.agents.tools import TOOLS
 from src.agents.tools.base import Source, ToolResult
+from src.data.cache import chat_cache_key
 from src.data.models import ChatMessage
 
 
@@ -22,6 +24,16 @@ from src.data.models import ChatMessage
 @pytest.fixture(autouse=True)
 def _no_intent_classification(monkeypatch):
     monkeypatch.setattr("src.agents.chat_service.classify_intent", MagicMock(return_value=None))
+
+
+# Every test below exercises the tool-calling loop itself, not the FAQ
+# response cache - default cache_get to a miss and neutralize cache_set so
+# none of them incidentally depend on (or attempt to reach) real Redis.
+# Tests that specifically cover the cache override these within their own body.
+@pytest.fixture(autouse=True)
+def _no_chat_response_cache(monkeypatch):
+    monkeypatch.setattr("src.agents.chat_service.cache_get", MagicMock(return_value=None))
+    monkeypatch.setattr("src.agents.chat_service.cache_set", MagicMock())
 
 
 def _text_block(text):
@@ -318,3 +330,106 @@ def test_entity_state_is_logged_for_debugging(caplog):
         answer_question(db=MagicMock(), question="what about its momentum?", history=history, client=client)
 
     assert any("NVDA" in record.message for record in caplog.records)
+
+
+# --- FAQ-style /chat response cache ---
+
+def _db_with_scan_run_id(scan_run_id):
+    db = MagicMock()
+    db.query.return_value.scalar.return_value = scan_run_id
+    return db
+
+
+# a cache hit for a context-free (no history) question short-circuits before the
+# classifier, entity extraction, or the model itself are ever invoked
+def test_cache_hit_for_context_free_question_skips_the_model_entirely(monkeypatch):
+    cached_answer = ChatAnswer(
+        response="Cached answer.", sources=[Source(type="factor_score", ticker="AAPL", ref_id=1)]
+    )
+    monkeypatch.setattr(
+        "src.agents.chat_service.cache_get", MagicMock(return_value=cached_answer.model_dump_json())
+    )
+    mock_classify = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", mock_classify)
+    client = MagicMock()
+
+    result = answer_question(db=_db_with_scan_run_id(42), question="Explain AAPL's score", client=client)
+
+    assert result == cached_answer
+    client.messages.create.assert_not_called()
+    mock_classify.assert_not_called()
+
+
+# a successful, model-completed answer to a context-free question is written to the cache
+def test_successful_context_free_answer_is_written_to_the_cache(monkeypatch):
+    mock_cache_set = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.cache_set", mock_cache_set)
+    tool_result = _factor_score_result()
+    monkeypatch.setattr("src.agents.chat_service.call_tool", MagicMock(return_value=tool_result))
+    client = _client_with_responses(
+        _response([_tool_use_block("t1", "get_factor_scores", {"ticker": "AAPL"})]),
+        _response([_text_block("AAPL scores 90/100.")]),
+    )
+
+    result = answer_question(db=_db_with_scan_run_id(42), question="Explain AAPL's score", client=client)
+
+    mock_cache_set.assert_called_once()
+    cache_key, cached_json = mock_cache_set.call_args.args
+    assert cache_key == chat_cache_key("Explain AAPL's score", 42)
+    assert ChatAnswer.model_validate_json(cached_json) == result
+
+
+# the latest scan_run_id (data_version) is part of the key - a later scan must not
+# accidentally reuse an answer cached against older data
+def test_cache_key_incorporates_the_latest_scan_run_id(monkeypatch):
+    mock_cache_get = MagicMock(return_value=None)
+    monkeypatch.setattr("src.agents.chat_service.cache_get", mock_cache_get)
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=_db_with_scan_run_id(99), question="What are the strongest momentum stocks?", client=client)
+
+    mock_cache_get.assert_called_once_with(chat_cache_key("What are the strongest momentum stocks?", 99))
+
+
+# CRITICAL (this cache's own acceptance criteria): a question submitted WITH history 
+def test_questions_with_history_never_touch_the_cache(monkeypatch):
+    mock_cache_get = MagicMock()
+    mock_cache_set = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.cache_get", mock_cache_get)
+    monkeypatch.setattr("src.agents.chat_service.cache_set", mock_cache_set)
+    history = [ChatMessage(session_id="s", role="user", content="Tell me about NVDA")]
+    client = _client_with_responses(_response([_text_block("Its momentum is 92/100.")]))
+
+    answer_question(db=MagicMock(), question="what about its momentum?", history=history, client=client)
+
+    mock_cache_get.assert_not_called()
+    mock_cache_set.assert_not_called()
+
+
+# a transient API failure must never be cached as if it were a real answer
+def test_fallback_response_is_not_cached(monkeypatch):
+    mock_cache_set = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.cache_set", mock_cache_set)
+    client = MagicMock()
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    client.messages.create.side_effect = anthropic.APIConnectionError(request=request)
+
+    result = answer_question(db=_db_with_scan_run_id(42), question="Explain AAPL's score", client=client)
+
+    assert result.response == FALLBACK_RESPONSE
+    mock_cache_set.assert_not_called()
+
+
+# a loop that never converges isn't a reliable "answer" either - must not be cached
+def test_inconclusive_response_is_not_cached(monkeypatch):
+    mock_cache_set = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.cache_set", mock_cache_set)
+    tool_result = _factor_score_result()
+    monkeypatch.setattr("src.agents.chat_service.call_tool", MagicMock(return_value=tool_result))
+    always_tool_use = _response([_tool_use_block("t1", "get_factor_scores", {"ticker": "AAPL"})])
+    client = _client_with_responses(*([always_tool_use] * MAX_TOOL_ITERATIONS))
+
+    result = answer_question(db=_db_with_scan_run_id(42), question="Explain AAPL's score", client=client)
+
+    assert result.response == INCONCLUSIVE_RESPONSE
+    mock_cache_set.assert_not_called()
