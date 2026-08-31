@@ -28,6 +28,17 @@ def test_search_memos_returns_sourced_results(monkeypatch):
     assert [s.ref_id for s in result.sources] == [142, 142]
 
 
+# each source's `detail` carries the actual memo text - the primary evidence for a
+# qualitative claim, so a citation UI can show it without a second fetch
+def test_search_memos_source_detail_carries_the_memo_text(monkeypatch):
+    hits = [_hit("AAPL", 142, memo_text="AAPL has a deep competitive moat.")]
+    monkeypatch.setattr("src.agents.tools.memo_tools._search_memos", MagicMock(return_value=hits))
+
+    result = search_memos(db=MagicMock(), query="deep competitive moats")
+
+    assert result.sources[0].detail == {"memo_text": "AAPL has a deep competitive moat."}
+
+
 # no hits -> empty data/sources, not an error
 def test_search_memos_with_no_hits_returns_empty_result(monkeypatch):
     monkeypatch.setattr("src.agents.tools.memo_tools._search_memos", MagicMock(return_value=[]))

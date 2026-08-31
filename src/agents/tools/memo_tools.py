@@ -40,7 +40,16 @@ def search_memos(db: Session, query: str) -> ToolResult:
     hits = _search_memos(db, query)
     return ToolResult(
         data={"results": [hit.model_dump(mode="json") for hit in hits]},
-        sources=[Source(type="memo", ticker=hit.ticker, ref_id=hit.scan_run_id, as_of=hit.as_of) for hit in hits],
+        sources=[
+            Source(
+                type="memo",
+                ticker=hit.ticker,
+                ref_id=hit.scan_run_id,
+                as_of=hit.as_of,
+                detail={"memo_text": hit.memo_text},
+            )
+            for hit in hits
+        ],
     )
 
 

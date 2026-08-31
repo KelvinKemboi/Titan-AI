@@ -73,6 +73,11 @@ def get_factor_scores(db: Session, ticker: str) -> ToolResult:
                 ticker=explanation.ticker,
                 ref_id=explanation.scan_run_id,
                 as_of=as_of,
+                detail={
+                    "composite_score": explanation.composite_score,
+                    "rating": explanation.rating,
+                    "factors": [f.model_dump(mode="json") for f in explanation.factors],
+                },
             )
         ],
     )
@@ -102,6 +107,7 @@ def compare_tickers(db: Session, tickers: List[str]) -> ToolResult:
                 ticker=t.ticker,
                 ref_id=result.scan_run_id,
                 as_of=as_of,
+                detail=t.model_dump(mode="json", exclude={"ticker"}),
             )
             for t in result.tickers
         ],

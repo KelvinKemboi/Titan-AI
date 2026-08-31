@@ -1,6 +1,7 @@
 import logging
 import os
 import ssl
+from datetime import datetime
 
 import requests
 import streamlit as st
@@ -76,6 +77,63 @@ if "chat_session_id" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
+
+def _format_as_of(as_of):
+    """ISO-8601 `as_of` timestamp (or None, from a source with no known scan
+    date) -> a display string for the sources panel."""
+    if not as_of:
+        return "unknown date"
+    try:
+        return datetime.fromisoformat(as_of).strftime("%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError):
+        return as_of
+
+
+def _render_factor_breakdown(detail):
+    """Renders a factor_score source's `detail`: the full per-factor
+    breakdown (score/weight/contribution/driver) when it came from
+    get_factor_scores, or just the five raw factor scores when it came
+    from compare_tickers"""
+    factors = detail.get("factors")
+    if factors:
+        for f in factors:
+            st.markdown(
+                f"- **{f['factor'].title()}**: {f['score']:.1f} "
+                f"(weight {f['weight']:.0%}, contributes {f['contribution']:.1f}) - {f['driver']}"
+            )
+    else:
+        for key in ("value_score", "momentum_score", "quality_score", "solvency_score", "volatility_score"):
+            value = detail.get(key)
+            if value is not None:
+                st.markdown(f"- **{key.replace('_score', '').title()}**: {value:.1f}")
+
+
+def _render_source(source):
+    """Renders one Source's verification detail (src/agents/tools/base.py) -
+    enough to check the claim it backs against the underlying data"""
+    ticker = source.get("ticker")
+    source_type = source.get("type")
+    as_of = _format_as_of(source.get("as_of"))
+    detail = source.get("detail") or {}
+
+    if source_type == "factor_score":
+        header = f"**{ticker}** - scan as of {as_of}"
+        composite = detail.get("composite_score")
+        if composite is not None:
+            header += f" - composite {composite:.1f}"
+        rating = detail.get("rating")
+        if rating:
+            header += f" ({rating})"
+        st.markdown(header)
+        _render_factor_breakdown(detail)
+    elif source_type == "memo":
+        st.markdown(f"**{ticker}** - analyst memo, scan as of {as_of}")
+        memo_text = detail.get("memo_text")
+        if memo_text:
+            st.markdown(memo_text)
+    else:
+        st.markdown(f"**{ticker}** - {source_type}, scan #{source.get('ref_id')} ({as_of})")
+
 # Hidden Sidebar for "Power Users" (You)
 with st.sidebar:
     st.header(" Simulation Settings")
@@ -91,8 +149,16 @@ with st.sidebar:
         for turn in st.session_state["chat_history"]:
             with st.chat_message(turn["role"]):
                 st.markdown(turn["content"])
-                for source in turn.get("sources", []):
-                    st.caption(f"Source: {source['ticker']}, scan #{source['ref_id']}")
+                sources = turn.get("sources", [])
+                if sources:
+                    # Non-intrusive by default (collapsed); expanding shows
+                    # enough per-source detail (score values, scan date, memo
+                    # text) to verify the claim above without leaving the chat.
+                    with st.expander(f"Sources ({len(sources)})"):
+                        for i, source in enumerate(sources):
+                            if i > 0:
+                                st.divider()
+                            _render_source(source)
 
     chat_prompt = st.chat_input("Ask Titan a question about the market or a specific stock...")
     if chat_prompt:

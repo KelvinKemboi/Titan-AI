@@ -52,7 +52,12 @@ def test_chat_returns_response_sources_and_session_id(monkeypatch, client):
     _stub_session_lookup(monkeypatch, session_uuid)
     answer = ChatAnswer(
         response="AAPL scores 90/100 (STRONG BUY).",
-        sources=[Source(type="factor_score", ticker="AAPL", ref_id=1)],
+        sources=[
+            Source(
+                type="factor_score", ticker="AAPL", ref_id=1,
+                detail={"composite_score": 90.0, "rating": "STRONG BUY"},
+            )
+        ],
     )
     monkeypatch.setattr("src.api.routes.chat.answer_question", MagicMock(return_value=answer))
 
@@ -61,7 +66,17 @@ def test_chat_returns_response_sources_and_session_id(monkeypatch, client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["response"] == "AAPL scores 90/100 (STRONG BUY)."
-    assert body["sources"] == [{"type": "factor_score", "ticker": "AAPL", "ref_id": 1, "as_of": None}]
+    # the citation UI (app.py) needs `detail` alongside ticker/ref_id/as_of to
+    # let a user verify the claim, not just see which ticker/scan it came from
+    assert body["sources"] == [
+        {
+            "type": "factor_score",
+            "ticker": "AAPL",
+            "ref_id": 1,
+            "as_of": None,
+            "detail": {"composite_score": 90.0, "rating": "STRONG BUY"},
+        }
+    ]
     assert body["session_id"] == str(session_uuid)
 
 

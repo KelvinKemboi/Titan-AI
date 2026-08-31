@@ -247,6 +247,26 @@ actually scoped per caller rather than shared/anonymous. Passing a
 not a silent read of someone else's conversation - one user must never be
 able to see (or extend) another's chat history this way.
 
+### Citation UI
+
+Each assistant message in the sidebar chat (`app.py`) renders its
+`sources` as a collapsed `Sources (N)` expander underneath the response -
+present but out of the way, not a wall of citations under every message.
+Expanding it renders each source's `detail` (see above) in a way
+specific to its `type`, so a claim can actually be checked instead of
+just naming the ticker/scan it came from:
+
+- `factor_score` sources show the composite score/rating and, when
+  present, the full per-factor breakdown (score, weight, contribution,
+  driver) `get_factor_scores` computed; `compare_tickers`' sources carry
+  each ticker's own five raw factor scores instead (no weight/
+  contribution/driver - the comparison tool never computed those).
+- `memo` sources show the actual memo text `search_memos` matched
+  against - the qualitative claim's real evidence, not a paraphrase.
+- Any source with no `detail` (or an unrecognized `type`) falls back to
+  the ticker/scan/date line alone, so older cached responses or a future
+  source type without `detail` still render instead of erroring.
+
 ### Factor Score Explanation Engine
 
 `src/analytics/explain.py` turns a `factor_scores` row into a structured
@@ -284,7 +304,11 @@ wrapped in a `ToolResult` (`src/agents/tools/base.py`): `data` matching
 the underlying function's response shape verbatim, plus `sources`
 (`type`, `ticker`, `ref_id` = `scan_run_id`, `as_of` = when that scan
 completed) per the source-attribution contract in
-[docs/technical-design.md §5](docs/technical-design.md).
+[docs/technical-design.md §5](docs/technical-design.md). Each `Source`
+also carries an optional `detail` - a bag of whatever verification data
+the tool already computed (a factor_score source's composite/rating/
+per-factor breakdown, a memo source's actual memo text) - so the
+citation UI below can show it without a second fetch.
 
 ```python
 from src.agents.tools import TOOLS, call_tool  # aggregates every tools/*.py submodule
