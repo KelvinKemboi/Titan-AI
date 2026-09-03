@@ -63,13 +63,16 @@ rewrite.
 │   │       └── memo_tools.py   # search_memos Claude tool schema (qualitative retrieval)
 │   ├── embeddings/
 │   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
+│   ├── earnings/
+│   │   └── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
 │       ├── cache.py        # Redis cache for /rankings + /company/{ticker}, reads REDIS_URL
 │       └── migrations/     # Alembic migrations
 ├── scripts/
-│   └── manual_test_tool_calling.py  # Live Claude tool-use verification
+│   ├── manual_test_tool_calling.py  # Live Claude tool-use verification
+│   └── manual_test_earnings_provider.py  # Live api-ninjas.com verification
 ├── tests/
 │   └── unit/               # Mirrors src/ structure
 ├── docker-compose.yml     # Local Postgres for dev
@@ -371,6 +374,47 @@ memos):
 
 ```bash
 python -m scripts.manual_test_memo_search
+```
+
+### Earnings Transcript Provider
+
+`src/earnings/provider_client.py` wraps api-ninjas.com's Earnings Call
+Transcript API - selected over Financial Modeling Prep and Alpha Vantage;
+see the written comparison in
+[docs/technical-design.md §7](docs/technical-design.md). Ingestion code
+(a later issue) only ever sees this module's own `Transcript`/
+`TranscriptSearchResult` types and `get_transcript`/`search_transcripts`
+functions, never the provider's request/response shapes - swapping
+providers later means rewriting this module's internals, not its callers.
+
+```python
+from src.earnings.provider_client import get_transcript, search_transcripts
+
+for hit in search_transcripts("AAPL"):  # paginated (offset/limit=50), most recent first
+    print(hit.fiscal_year, hit.fiscal_quarter, hit.call_date)
+
+transcript = get_transcript("AAPL", year=2024, quarter=2)  # None if the provider has nothing for this quarter
+```
+
+```bash
+# .env
+EARNINGS_PROVIDER_API_KEY=...  # api-ninjas.com key
+```
+
+Auth (`X-Api-Key` header) and rate limiting (429/5xx retried with
+backoff, honoring a `Retry-After` header when the provider sends one) are
+handled internally - `EarningsProviderAuthError` for a missing/rejected
+key (fails the whole run rather than retrying, since a bad key fails
+identically every time), `EarningsProviderError` for anything else.
+`get_transcript` returns `None` - not an error - when the provider simply
+has no transcript for a ticker/quarter, so one coverage gap degrades
+gracefully instead of failing an entire ingestion run.
+
+Manual live verification (requires `EARNINGS_PROVIDER_API_KEY`):
+
+```bash
+export EARNINGS_PROVIDER_API_KEY="..."
+python -m scripts.manual_test_earnings_provider AAPL
 ```
 
 ### Intent Classification
