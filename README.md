@@ -126,13 +126,23 @@ database (e.g. in CI or production).
 The `db` service image is `pgvector/pgvector:pg16` - upstream `postgres:16`
 with the [pgvector](https://github.com/pgvector/pgvector) extension
 precompiled, needed for `vector(N)` columns and similarity search
-(Phase 2's `earnings_chunks`, see
+(`memo_embeddings`, Phase 2's `earnings_chunks` - both `vector(1536)`,
+matching `src.embeddings.service.EMBEDDING_DIMENSION`; see
 [docs/architecture.md](docs/architecture.md#4-database-schema-initial)). The
 `c902a842d2a8_enable_pgvector_extension` migration runs `CREATE EXTENSION
 IF NOT EXISTS vector` as part of `alembic upgrade head` above - no separate
 step needed. If you're pointing `DATABASE_URL` at a Postgres instance other
 than the `db` service, it must have pgvector installed for that migration
 to succeed.
+
+`4aee5f48ae19_create_earnings_transcripts_earnings_` creates
+`earnings_transcripts`/`earnings_chunks` (architecture.md §4) -
+`earnings_chunks.transcript_id` foreign-keys to `earnings_transcripts.id`,
+and `earnings_chunks.embedding` is `vector(1536)`, matching
+`memo_embeddings.embedding`'s dimension so both tables work with the same
+embedding model/query shape. No ORM models yet (`src/data/models.py`) -
+those land with the ingestion service (a later issue) that actually reads
+and writes these tables; this migration only establishes the schema.
 
 ## Redis (caching)
 
