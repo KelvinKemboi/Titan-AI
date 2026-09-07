@@ -65,7 +65,8 @@ rewrite.
 │   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
 │   ├── earnings/
 │   │   ├── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
-│   │   └── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
+│   │   ├── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
+│   │   └── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -458,7 +459,52 @@ row = ingest_transcript(db, "AAPL", year=2024, quarter=2)  # None if unavailable
 
 Not yet built: a scheduled batch runner that decides *which*
 ticker/quarter pairs to ingest (e.g. off an earnings calendar) and calls
-this per pair, and the chunking/embedding pass into `earnings_chunks`.
+this per pair.
+
+### Earnings Transcript Chunking
+
+`src/earnings/chunking.py:chunk_transcript(raw_text)` splits one
+transcript's raw text into `earnings_chunks`-shaped rows - `chunk_type`
+(`prepared_remarks` | `qna`) + `chunk_text` - chunked by speaker turn
+rather than a fixed token window, so who-said-what and which section it
+came from both survive into whatever gets embedded later:
+
+```python
+from src.earnings.chunking import chunk_transcript
+
+for chunk in chunk_transcript(transcript.raw_text):
+    print(chunk.chunk_type, len(chunk.chunk_text))
+```
+
+- **Format assumption**: each speaker turn is its own paragraph,
+  `"Name: text"` - confirmed against api-ninjas.com's actual
+  `earningstranscript` response, the chosen provider (see the provider
+  client section above).
+- **Section detection**: tags every turn up to and including the one
+  where the operator/IR host actually opens the floor to questions as
+  `prepared_remarks`, everything after as `qna` - matched against a set
+  of real transition phrasings ("we'll now move over to Q&A", "may we
+  have the first question", "our first question comes from", ...), not
+  one fixed string, since real transcripts word it differently company to
+  company. Deliberately does **not** match a bare "question-and-answer
+  session" mention - real operator scripts routinely announce one will
+  happen (future tense) well before prepared remarks even start, which
+  would otherwise be a false-positive boundary. No recognized transition
+  phrase anywhere → the whole transcript stays `prepared_remarks` rather
+  than guessing at a boundary that isn't there.
+- **Chunk size**: consecutive same-section turns are packed into one
+  chunk up to `MAX_CHUNK_CHARS` (2,000 - sized for retrieval granularity,
+  not voyage-large-2's much larger context window). A section change
+  always starts a new chunk even with room left; a single turn longer
+  than the cap is split on sentence boundaries, never emitted oversized.
+- **Tests**: `tests/unit/earnings/test_chunking.py` runs this against two
+  real, public earnings-call transcripts (Apple Q2 FY2024, Microsoft Q3
+  FY2024 - genuine quotes, reflowed into the provider's own
+  `"Name: text"` convention), not synthetic placeholder text.
+
+Not yet built: embedding the chunks this returns and persisting them to
+`earnings_chunks` (no ORM model for that table yet either - see
+architecture.md §4).
 
 ### Intent Classification
 
