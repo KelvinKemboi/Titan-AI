@@ -19,12 +19,13 @@ def _api_key(monkeypatch):
     monkeypatch.setenv("EARNINGS_PROVIDER_API_KEY", "test-provider-key")
 
 
-def _response(status_code=200, json_body=None, text=""):
+def _response(status_code=200, json_body=None, text="", url="https://api.api-ninjas.com/v1/earningstranscript"):
     resp = MagicMock()
     resp.status_code = status_code
     resp.ok = 200 <= status_code < 300
     resp.json.return_value = json_body
     resp.text = text
+    resp.url = url
     return resp
 
 
@@ -74,17 +75,33 @@ def test_get_transcript_raises_for_a_server_error():
 # get_transcript mapping
 def test_get_transcript_maps_the_provider_payload_into_our_own_shape():
     session = MagicMock()
-    session.get.return_value = _response(json_body={
-        "ticker": "AAPL", "year": "2024", "quarter": "2", "date": "2024-05-02",
-        "transcript": "Operator: Welcome to the call...",
-    })
+    session.get.return_value = _response(
+        json_body={
+            "ticker": "AAPL", "year": "2024", "quarter": "2", "date": "2024-05-02",
+            "transcript": "Operator: Welcome to the call...",
+        },
+        url="https://api.api-ninjas.com/v1/earningstranscript?ticker=AAPL&year=2024&quarter=2",
+    )
 
     result = get_transcript("AAPL", year=2024, quarter=2, session=session)
 
     assert result == Transcript(
         ticker="AAPL", fiscal_year=2024, fiscal_quarter="Q2",
         call_date="2024-05-02", raw_text="Operator: Welcome to the call...",
+        source_url="https://api.api-ninjas.com/v1/earningstranscript?ticker=AAPL&year=2024&quarter=2",
     )
+
+
+def test_get_transcript_populates_source_url_from_the_resolved_request_url():
+    session = MagicMock()
+    session.get.return_value = _response(
+        json_body={"ticker": "MSFT", "year": "2025", "quarter": "1", "transcript": "text"},
+        url="https://api.api-ninjas.com/v1/earningstranscript?ticker=MSFT&year=2025&quarter=1",
+    )
+
+    result = get_transcript("MSFT", year=2025, quarter=1, session=session)
+
+    assert result.source_url == "https://api.api-ninjas.com/v1/earningstranscript?ticker=MSFT&year=2025&quarter=1"
 
 
 def test_get_transcript_normalizes_and_forwards_ticker_year_quarter():

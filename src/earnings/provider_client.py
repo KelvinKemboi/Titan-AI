@@ -112,13 +112,14 @@ def _get(path: str, params: dict, *, session: Optional[requests.Session] = None)
     return response
 
 
-def _to_transcript(payload: dict) -> Transcript:
+def _to_transcript(payload: dict, *, source_url: str) -> Transcript:
     return Transcript(
         ticker=payload["ticker"],
         fiscal_year=int(payload["year"]),
         fiscal_quarter=f"Q{payload['quarter']}",
         call_date=payload.get("date") or None,
         raw_text=payload["transcript"],
+        source_url=source_url,
     )
 
 
@@ -147,7 +148,7 @@ def get_transcript(
     payload = response.json()
     if not payload or not payload.get("transcript"):
         return None
-    return _to_transcript(payload)
+    return _to_transcript(payload, source_url=response.url)
 
 
 def search_transcripts(

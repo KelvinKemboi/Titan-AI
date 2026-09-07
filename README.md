@@ -64,7 +64,8 @@ rewrite.
 │   ├── embeddings/
 │   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
 │   ├── earnings/
-│   │   └── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
+│   │   ├── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
+│   │   └── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -392,10 +393,11 @@ python -m scripts.manual_test_memo_search
 Transcript API - selected over Financial Modeling Prep and Alpha Vantage;
 see the written comparison in
 [docs/technical-design.md §7](docs/technical-design.md). Ingestion code
-(a later issue) only ever sees this module's own `Transcript`/
-`TranscriptSearchResult` types and `get_transcript`/`search_transcripts`
-functions, never the provider's request/response shapes - swapping
-providers later means rewriting this module's internals, not its callers.
+(`src/earnings/ingestion.py`, below) only ever sees this module's own
+`Transcript`/`TranscriptSearchResult` types and
+`get_transcript`/`search_transcripts` functions, never the provider's
+request/response shapes - swapping providers later means rewriting this
+module's internals, not its callers.
 
 ```python
 from src.earnings.provider_client import get_transcript, search_transcripts
@@ -426,6 +428,37 @@ Manual live verification (requires `EARNINGS_PROVIDER_API_KEY`):
 export EARNINGS_PROVIDER_API_KEY="..."
 python -m scripts.manual_test_earnings_provider AAPL
 ```
+
+### Earnings Transcript Ingestion
+
+`src/earnings/ingestion.py:ingest_transcript(db, ticker, year, quarter)`
+fetches one ticker's transcript for one fiscal quarter and persists it as
+one `earnings_transcripts` row (`src.data.models.EarningsTranscript`):
+
+```python
+from src.earnings.ingestion import ingest_transcript
+
+row = ingest_transcript(db, "AAPL", year=2024, quarter=2)  # None if unavailable; does not commit
+```
+
+- **Idempotent**: an already-ingested `(ticker, fiscal_year,
+  fiscal_quarter)` short-circuits to the existing row without calling the
+  provider again (saves quota); a concurrent duplicate insert still can't
+  happen since the write itself is an upsert (`ON CONFLICT DO NOTHING`)
+  against the table's own unique index (migration `4aee5f48ae19`).
+- **Graceful degradation**: a missing/unavailable transcript
+  (`get_transcript` returns `None`) or an ordinary provider failure is
+  logged and returns `None` - never raised, so a future batch job calling
+  this once per ticker/quarter doesn't need its own try/except for the
+  common case. An `EarningsProviderAuthError` (bad/missing API key) is
+  the one thing that still propagates - see the provider client section
+  above for why.
+- Does not commit - same as `src/data/chat_repository.py`'s
+  `get_or_create_session` - the caller owns the transaction.
+
+Not yet built: a scheduled batch runner that decides *which*
+ticker/quarter pairs to ingest (e.g. off an earnings calendar) and calls
+this per pair, and the chunking/embedding pass into `earnings_chunks`.
 
 ### Intent Classification
 

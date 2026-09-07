@@ -122,3 +122,28 @@ class MemoEmbedding(Base):
             unique=True,
         ),
     )
+
+# one row per ticker per fiscal quarter
+class EarningsTranscript(Base):
+    """One earnings call transcript for one (ticker, fiscal_year,
+    fiscal_quarter) - fetched via src/earnings/provider_client.py and
+    persisted by src/earnings/ingestion.py:ingest_transcript, which is
+    idempotent on the same unique index this table enforces."""
+
+    __tablename__ = "earnings_transcripts"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticker = Column(String, ForeignKey("companies.ticker"), nullable=False)
+    fiscal_quarter = Column(String, nullable=False)  # e.g. "Q2"
+    fiscal_year = Column(Integer, nullable=False)
+    raw_text = Column(Text, nullable=False)
+    source_url = Column(String)
+    ingested_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ix_earnings_transcripts_ticker_fiscal_year_fiscal_quarter",
+            "ticker", "fiscal_year", "fiscal_quarter",
+            unique=True,
+        ),
+    )
