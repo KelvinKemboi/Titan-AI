@@ -30,6 +30,14 @@ def _db_with_no_existing_row():
     return db
 
 
+# Chunk indexing is exercised on its own in test_chunk_indexing.py 
+@pytest.fixture(autouse=True)
+def _no_chunk_indexing(monkeypatch):
+    mock_index = MagicMock()
+    monkeypatch.setattr("src.earnings.ingestion.index_transcript_chunks", mock_index)
+    return mock_index
+
+
 # idempotency: an already-ingested (ticker, fiscal_year, fiscal_quarter)
 def test_returns_existing_row_without_calling_the_provider(monkeypatch):
     mock_get_transcript = MagicMock()
@@ -65,6 +73,40 @@ def test_successful_fetch_inserts_a_row_with_raw_text_and_source_url(monkeypatch
     assert params["fiscal_quarter"] == "Q2"
     assert params["raw_text"] == "Operator: Welcome to the call..."
     assert params["source_url"] == "https://api.api-ninjas.com/v1/earningstranscript?ticker=AAPL&year=2024&quarter=2"
+
+
+# wiring: a freshly-inserted transcript's chunks get indexed
+def test_a_fresh_insert_triggers_chunk_indexing(monkeypatch, _no_chunk_indexing):
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
+    db = _db_with_no_existing_row()
+    db.execute.return_value.scalar_one_or_none.return_value = 42
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_chunk_indexing.assert_called_once_with(db, 42, "Operator: Welcome to the call...")
+
+
+def test_an_already_existing_row_does_not_re_trigger_chunk_indexing(monkeypatch, _no_chunk_indexing):
+    mock_get_transcript = MagicMock()
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", mock_get_transcript)
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = object()
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_chunk_indexing.assert_not_called()
+
+
+def test_losing_the_insert_race_does_not_re_trigger_chunk_indexing(monkeypatch, _no_chunk_indexing):
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = None
+    db.query.return_value.filter.return_value.one.return_value = object()
+    db.execute.return_value.scalar_one_or_none.return_value = None  # conflict - lost the race
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_chunk_indexing.assert_not_called()
 
 
 def test_insert_conflict_target_is_ticker_fiscal_year_fiscal_quarter(monkeypatch):

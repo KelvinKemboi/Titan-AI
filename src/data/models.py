@@ -147,3 +147,19 @@ class EarningsTranscript(Base):
             unique=True,
         ),
     )
+
+# one row per chunk of an earnings call transcript (prepared_remarks or qna)
+class EarningsChunk(Base):
+    """One embedded chunk of an earnings call transcript"""
+
+    __tablename__ = "earnings_chunks"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    transcript_id = Column(BigInteger, ForeignKey("earnings_transcripts.id"), nullable=False)
+    chunk_type = Column(String, nullable=False)  # prepared_remarks | qna
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(Vector(EMBEDDING_DIMENSION), nullable=False)
+
+    __table_args__ = (
+        Index("ix_earnings_chunks_transcript_id", "transcript_id"),
+    )

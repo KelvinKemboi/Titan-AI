@@ -66,7 +66,8 @@ rewrite.
 │   ├── earnings/
 │   │   ├── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
 │   │   ├── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
-│   │   └── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
+│   │   ├── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
+│   │   └── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -502,9 +503,40 @@ for chunk in chunk_transcript(transcript.raw_text):
   FY2024 - genuine quotes, reflowed into the provider's own
   `"Name: text"` convention), not synthetic placeholder text.
 
-Not yet built: embedding the chunks this returns and persisting them to
-`earnings_chunks` (no ORM model for that table yet either - see
-architecture.md §4).
+### Earnings Transcript Chunk Indexing
+
+`src/earnings/chunk_indexing.py:index_transcript_chunks(db, transcript_id,
+raw_text)` wires the chunker above through the embedding helper
+(`src/embeddings/service.py:embed_texts`) and persists the result as
+`earnings_chunks` rows (`src.data.models.EarningsChunk`), each with its
+embedding already populated:
+
+```python
+from src.earnings.chunk_indexing import index_transcript_chunks
+
+rows = index_transcript_chunks(db, transcript.id, transcript.raw_text)  # does not commit
+```
+
+- **Batched, not per-chunk**: every chunk's text for one transcript is
+  embedded in a single `embed_texts` call, not one API call per chunk -
+  the acceptance criterion this exists for (cost/latency).
+- **Every row gets an embedding**: `EarningsChunk.embedding` is `NOT
+  NULL` at the DB level too - a chunk is only ever constructed with its
+  embedding already in hand, never inserted first and backfilled later.
+- **Graceful degradation**: mirrors `src/analytics/memo_indexing.py`
+  exactly - an embeddings-API failure is logged and swallowed, not
+  raised, since the transcript's raw text must still count as ingested
+  even if chunk indexing can't reach Voyage this run.
+- **Wired into ingestion**: `ingest_transcript`
+  (`src/earnings/ingestion.py`) calls this automatically right after a
+  *new* transcript row is persisted - mirroring how `scanner_service`
+  calls `index_memos` right after a scan's factor scores are persisted.
+  The idempotent short-circuit path and a lost insert-race both skip it,
+  since whichever call first created the row already indexed its chunks.
+
+Not yet built: `earnings_insights` (summary/guidance/sentiment/risk
+extraction over these chunks) and a scheduled batch runner over the
+earnings calendar to decide which ticker/quarter pairs to ingest.
 
 ### Intent Classification
 

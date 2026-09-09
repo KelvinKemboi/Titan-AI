@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from src.data.models import EarningsTranscript
+from src.earnings.chunk_indexing import index_transcript_chunks
 from src.earnings.provider_client import EarningsProviderAuthError, EarningsProviderError, get_transcript
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,8 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
     inserted_id = db.execute(stmt).scalar_one_or_none()
     if inserted_id is None:
         # Lost a race to a concurrent insert for the same (ticker, fiscal_year,
-        # fiscal_quarter) between the check above and this insert 
+        # fiscal_quarter) between the check above and this insert - whichever
+        # call won already indexed this transcript's chunks, so don't repeat it
         return (
             db.query(EarningsTranscript)
             .filter(
@@ -83,4 +85,7 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
             )
             .one()
         )
+
+    # Chunk + embed + persist this transcript's earnings_chunks rows right after it's first persisted
+    index_transcript_chunks(db, inserted_id, transcript.raw_text)
     return db.get(EarningsTranscript, inserted_id)
