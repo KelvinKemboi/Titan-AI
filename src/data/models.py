@@ -163,3 +163,24 @@ class EarningsChunk(Base):
     __table_args__ = (
         Index("ix_earnings_chunks_transcript_id", "transcript_id"),
     )
+
+# one row per transcript: derived insights, filled in by separate extraction
+class EarningsInsight(Base):
+    """Derived insights for one earnings call transcript-one row per
+    transcript_id, populated incrementally by independent extraction
+    passes."""
+
+    __tablename__ = "earnings_insights"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    transcript_id = Column(BigInteger, ForeignKey("earnings_transcripts.id"), nullable=False)
+    summary = Column(Text)
+    guidance_direction = Column(String) # raised | maintained | lowered | none_given
+    sentiment_score = Column(Numeric) # -1..1
+    risks = Column(JSONB)
+    qoq_changes = Column(JSONB)
+    generated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_earnings_insights_transcript_id", "transcript_id", unique=True),
+    )

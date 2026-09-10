@@ -67,7 +67,8 @@ rewrite.
 │   │   ├── provider_client.py  # get_transcript/search_transcripts: wraps api-ninjas.com (auth, retries, pagination)
 │   │   ├── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
 │   │   ├── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
-│   │   └── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
+│   │   ├── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
+│   │   └── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -534,9 +535,48 @@ rows = index_transcript_chunks(db, transcript.id, transcript.raw_text)  # does n
   The idempotent short-circuit path and a lost insert-race both skip it,
   since whichever call first created the row already indexed its chunks.
 
-Not yet built: `earnings_insights` (summary/guidance/sentiment/risk
-extraction over these chunks) and a scheduled batch runner over the
-earnings calendar to decide which ticker/quarter pairs to ingest.
+### Earnings Summary Generation
+
+`src/earnings/summary.py:generate_summary(db, transcript_id, raw_text)`
+runs a single LLM summarization pass over a transcript's prepared-remarks
+content (technical-design.md §8) and persists it to
+`earnings_insights.summary` (`src.data.models.EarningsInsight`):
+
+```python
+from src.earnings.summary import generate_summary
+
+insight = generate_summary(db, transcript.id, transcript.raw_text)  # does not commit
+```
+
+- **Prepared remarks only**: summarizes `chunk_transcript`'s
+  `prepared_remarks` chunks - the `qna` section is out of scope for this
+  pass.
+- **Chunk-then-reduce, not truncated**: if the concatenated prepared-
+  remarks text fits within `MAX_SUMMARIZATION_INPUT_CHARS` (12,000 chars
+  - a deliberately conservative bound chosen for cost/focus, not the
+  model's actual context limit), one call summarizes it directly.
+  Otherwise it's grouped into sections, each section is summarized on its
+  own (map), and a further call combines those section summaries into one
+  final summary (reduce) - a long call is never silently cut off to fit
+  one call.
+- **Runs at ingestion time, off any request path**: wired into
+  `ingest_transcript` right after chunk indexing - like chunk indexing,
+  nothing under `src/api/routes/` calls into this, so it never runs on a
+  live `/chat` (or any other) request.
+- **Graceful degradation**: a model failure is logged and swallowed, not
+  raised - mirrors `chunk_indexing.py`/`memo_indexing.py` exactly, since
+  the transcript's raw text/chunks must still count as ingested even if
+  summarization can't reach the model this run.
+- **Idempotent**: upserts on `earnings_insights`'s unique `transcript_id`
+  index, so later passes (guidance/sentiment/risk, not yet built) update
+  the same row's own columns instead of colliding with this one, and
+  re-running summarization for an already-summarized transcript replaces
+  rather than duplicates.
+
+Not yet built: guidance/sentiment/risk/quarter-over-quarter extraction
+(technical-design.md §9-11, same `earnings_insights` row) and a scheduled
+batch runner over the earnings calendar to decide which ticker/quarter
+pairs to ingest.
 
 ### Intent Classification
 

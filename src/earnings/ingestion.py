@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from src.data.models import EarningsTranscript
 from src.earnings.chunk_indexing import index_transcript_chunks
 from src.earnings.provider_client import EarningsProviderAuthError, EarningsProviderError, get_transcript
+from src.earnings.summary import generate_summary
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,8 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
             .one()
         )
 
-    # Chunk + embed + persist this transcript's earnings_chunks rows right after it's first persisted
+    # Chunk + embed + persist this transcript's earnings_chunks rows, and
+    # generate its earnings_insights.summary, right
     index_transcript_chunks(db, inserted_id, transcript.raw_text)
+    generate_summary(db, inserted_id, transcript.raw_text)
     return db.get(EarningsTranscript, inserted_id)
