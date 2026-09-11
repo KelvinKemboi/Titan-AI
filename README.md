@@ -68,7 +68,8 @@ rewrite.
 │   │   ├── ingestion.py        # ingest_transcript: fetch + idempotent persist to earnings_transcripts
 │   │   ├── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
 │   │   ├── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
-│   │   └── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
+│   │   ├── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
+│   │   └── guidance.py         # generate_guidance: structured guidance_direction + quote -> earnings_insights
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -568,15 +569,65 @@ insight = generate_summary(db, transcript.id, transcript.raw_text)  # does not c
   the transcript's raw text/chunks must still count as ingested even if
   summarization can't reach the model this run.
 - **Idempotent**: upserts on `earnings_insights`'s unique `transcript_id`
-  index, so later passes (guidance/sentiment/risk, not yet built) update
-  the same row's own columns instead of colliding with this one, and
-  re-running summarization for an already-summarized transcript replaces
-  rather than duplicates.
+  index, so later passes (guidance/sentiment/risk) update the same row's
+  own columns instead of colliding with this one, and re-running
+  summarization for an already-summarized transcript replaces rather than
+  duplicates.
 
-Not yet built: guidance/sentiment/risk/quarter-over-quarter extraction
-(technical-design.md §9-11, same `earnings_insights` row) and a scheduled
-batch runner over the earnings calendar to decide which ticker/quarter
-pairs to ingest.
+### Guidance Extraction
+
+`src/earnings/guidance.py:generate_guidance(db, transcript_id, raw_text)`
+classifies how a company's forward guidance changed this call
+(technical-design.md §9) and persists both the classification and a
+supporting quote to `earnings_insights`:
+
+```python
+from src.earnings.guidance import generate_guidance
+
+insight = generate_guidance(db, transcript.id, transcript.raw_text)  # does not commit
+```
+
+- **Structured, not free text**: a forced tool call (`tool_choice`, same
+  pattern as `src/agents/intent_classifier.py`) returns
+  `guidance_direction` - one of `raised` / `maintained` / `lowered` /
+  `none_given` / `unclear` - plus a verbatim supporting `quote`, so a
+  later quarter-over-quarter comparison pass can compare enum values
+  mechanically instead of another LLM call.
+- **Targeted, not the whole transcript**: a keyword pre-filter (no LLM
+  call) picks out which `chunk_transcript` chunks - prepared remarks
+  *and* Q&A, unlike summarization - plausibly mention forward guidance
+  at all; if none do, returns `("none_given", None)` directly without
+  calling the model.
+- **Graceful degradation**: a non-compliant model response (no tool call,
+  or a value outside the five) degrades to `("unclear", None)` rather
+  than raising; an actual model failure is logged and swallowed, same as
+  summary generation.
+- **Wired into ingestion**: runs right after summary generation in
+  `ingest_transcript`, same off-request-path, idempotent-upsert pattern.
+
+**Eval set** (`scripts/eval_guidance_extraction.py`) - the acceptance
+criterion this exists for: a small set of earnings-call excerpts with
+known guidance outcomes, run against the live model to sanity-check
+accuracy before merge. Three are genuine, verbatim quotes from real
+public earnings calls (Trimble/raised, AES/maintained, Macy's/lowered);
+`none_given`/`unclear` are constructed for category coverage (the former
+grounded in Alphabet's well-documented no-guidance practice), not
+verbatim - each row in the eval set says which. Requires
+`ANTHROPIC_API_KEY`:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python -m scripts.eval_guidance_extraction
+```
+
+**Not run against a live model in this environment** - no working
+`ANTHROPIC_API_KEY` was available, only a placeholder that 401s. Run the
+eval above before relying on this pass's real-world accuracy.
+
+Not yet built: sentiment/risk/quarter-over-quarter extraction
+(technical-design.md §10-11, same `earnings_insights` row) and a
+scheduled batch runner over the earnings calendar to decide which
+ticker/quarter pairs to ingest.
 
 ### Intent Classification
 

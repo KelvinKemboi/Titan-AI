@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from src.data.models import EarningsTranscript
 from src.earnings.chunk_indexing import index_transcript_chunks
+from src.earnings.guidance import generate_guidance
 from src.earnings.provider_client import EarningsProviderAuthError, EarningsProviderError, get_transcript
 from src.earnings.summary import generate_summary
 
@@ -87,8 +88,8 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
             .one()
         )
 
-    # Chunk + embed + persist this transcript's earnings_chunks rows, and
-    # generate its earnings_insights.summary, right
+    # Index the transcript's chunks, generate its summary, and generate its guidance
     index_transcript_chunks(db, inserted_id, transcript.raw_text)
     generate_summary(db, inserted_id, transcript.raw_text)
+    generate_guidance(db, inserted_id, transcript.raw_text)
     return db.get(EarningsTranscript, inserted_id)

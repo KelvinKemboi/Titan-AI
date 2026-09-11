@@ -175,7 +175,8 @@ class EarningsInsight(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     transcript_id = Column(BigInteger, ForeignKey("earnings_transcripts.id"), nullable=False)
     summary = Column(Text)
-    guidance_direction = Column(String) # raised | maintained | lowered | none_given
+    guidance_direction = Column(String) # raised | maintained | lowered | none_given | unclear
+    guidance_quote = Column(Text)  # supporting quote for guidance_direction
     sentiment_score = Column(Numeric) # -1..1
     risks = Column(JSONB)
     qoq_changes = Column(JSONB)
