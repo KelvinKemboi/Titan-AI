@@ -14,6 +14,7 @@ from src.data.models import EarningsTranscript
 from src.earnings.chunk_indexing import index_transcript_chunks
 from src.earnings.guidance import generate_guidance
 from src.earnings.provider_client import EarningsProviderAuthError, EarningsProviderError, get_transcript
+from src.earnings.sentiment import generate_sentiment
 from src.earnings.summary import generate_summary
 
 logger = logging.getLogger(__name__)
@@ -88,8 +89,11 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
             .one()
         )
 
-    # Index the transcript's chunks, generate its summary, and generate its guidance
+    # Index the transcript's chunks, then generate its summary, guidance,
+    # and sentiment score - all off the ingestion path, never a
+    # user-facing request, each swallowing its own failures internally.
     index_transcript_chunks(db, inserted_id, transcript.raw_text)
     generate_summary(db, inserted_id, transcript.raw_text)
     generate_guidance(db, inserted_id, transcript.raw_text)
+    generate_sentiment(db, inserted_id, transcript.raw_text)
     return db.get(EarningsTranscript, inserted_id)

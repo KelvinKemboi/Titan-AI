@@ -69,7 +69,8 @@ rewrite.
 │   │   ├── chunking.py         # chunk_transcript: prepared_remarks/qna, size-bounded (no DB/embedding access)
 │   │   ├── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
 │   │   ├── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
-│   │   └── guidance.py         # generate_guidance: structured guidance_direction + quote -> earnings_insights
+│   │   ├── guidance.py         # generate_guidance: structured guidance_direction + quote -> earnings_insights
+│   │   └── sentiment.py        # generate_sentiment: rubric-based Q&A tone score -> earnings_insights.sentiment_score
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -624,10 +625,57 @@ python -m scripts.eval_guidance_extraction
 `ANTHROPIC_API_KEY` was available, only a placeholder that 401s. Run the
 eval above before relying on this pass's real-world accuracy.
 
-Not yet built: sentiment/risk/quarter-over-quarter extraction
-(technical-design.md §10-11, same `earnings_insights` row) and a
-scheduled batch runner over the earnings calendar to decide which
-ticker/quarter pairs to ingest.
+### Sentiment Analysis
+
+`src/earnings/sentiment.py:generate_sentiment(db, transcript_id, raw_text)`
+scores management's tone during the Q&A portion of a call
+(technical-design.md §10) and persists it to
+`earnings_insights.sentiment_score`:
+
+```python
+from src.earnings.sentiment import generate_sentiment
+
+insight = generate_sentiment(db, transcript.id, transcript.raw_text)  # does not commit
+```
+
+- **Q&A only, not prepared remarks**: prepared remarks are scripted and
+  less informative about how management actually feels under unscripted
+  questioning - the same reasoning technical-design.md §10 states.
+  Nothing to score (no `qna` chunks) → `None`, no model call.
+- **Rubric-based, not a generic classifier**: financial tone ≠ general
+  sentiment - "we're seeing headwinds" is negative with no
+  negative-sounding words. The rubric (what -1 / -0.5 / 0 / +0.5 / +1
+  each look like, with a real anchor example per extreme) is the entire
+  prompt in `sentiment.py`'s `_SYSTEM_PROMPT` - auditable by reading the
+  source, not a black box.
+- **Structured output, clamped**: a forced tool call returns a single
+  number, clamped into `[-1, 1]` regardless of what the model says. A
+  non-compliant response (no tool call, non-numeric value) returns `None`
+  rather than guessing.
+- **Wired into ingestion**: runs right after guidance extraction in
+  `ingest_transcript`, same off-request-path, idempotent-upsert pattern.
+
+**Manual spot-check** (`scripts/spot_check_sentiment.py`) - the
+acceptance criterion this exists for: 5 real, verbatim Q&A exchanges from
+public earnings calls with a deliberate tone spread (NVDA unequivocally
+bullish → MSFT confident-but-measured → Macy's flat/neutral → Intel
+evasive under a pointed question → Boeing's unprompted "the quarter was
+disappointing"), printed for a human to eyeball for plausibility - not a
+pass/fail grade, since sentiment is more continuous/subjective than
+guidance's discrete enum. Requires `ANTHROPIC_API_KEY`:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+python -m scripts.spot_check_sentiment
+```
+
+**Not run against a live model in this environment** - same reason as
+the guidance eval above. Run it before relying on this pass's
+plausibility.
+
+Not yet built: risk/quarter-over-quarter extraction (technical-design.md
+§11-12, same `earnings_insights` row) and a scheduled batch runner over
+the earnings calendar to decide which ticker/quarter pairs to ingest.
 
 ### Intent Classification
 
