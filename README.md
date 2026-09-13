@@ -70,7 +70,8 @@ rewrite.
 │   │   ├── chunk_indexing.py   # index_transcript_chunks: batch-embeds + persists earnings_chunks
 │   │   ├── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
 │   │   ├── guidance.py         # generate_guidance: structured guidance_direction + quote -> earnings_insights
-│   │   └── sentiment.py        # generate_sentiment: rubric-based Q&A tone score -> earnings_insights.sentiment_score
+│   │   ├── sentiment.py        # generate_sentiment: rubric-based Q&A tone score -> earnings_insights.sentiment_score
+│   │   └── risk.py             # generate_risks: {risk, quote} list scoped to this call -> earnings_insights.risks
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -673,9 +674,47 @@ python -m scripts.spot_check_sentiment
 the guidance eval above. Run it before relying on this pass's
 plausibility.
 
-Not yet built: risk/quarter-over-quarter extraction (technical-design.md
-§11-12, same `earnings_insights` row) and a scheduled batch runner over
-the earnings calendar to decide which ticker/quarter pairs to ingest.
+### Risk Extraction
+
+`src/earnings/risk.py:generate_risks(db, transcript_id, raw_text)`
+extracts the risks management actually discussed during this specific
+call (technical-design.md §11), each with a supporting quote, and
+persists them to `earnings_insights.risks`:
+
+```python
+from src.earnings.risk import generate_risks
+
+insight = generate_risks(db, transcript.id, transcript.raw_text)  # does not commit
+```
+
+- **Scoped to what was said in this call, not a 10-K-style summary**:
+  the acceptance criterion this exists for. The system prompt explicitly
+  instructs the model not to include generic risks "that would apply to
+  any company in this industry" just because they seem likely - only
+  risks management actually raised or acknowledged in this excerpt. A
+  general risk-factor summary is Titan Copilot's job (see
+  `docs/future-expansion.md`), not this pass's.
+- **Both sections, not just Q&A**: unlike sentiment (Q&A only) or
+  summary (prepared remarks only), risk extraction reads both - a
+  `_mentions_risk` keyword pre-filter (no LLM call) picks out which
+  chunks plausibly discuss a risk at all, same approach as guidance
+  extraction's `_mentions_guidance`.
+- **A structured list, not free text**: a forced tool call returns
+  `[{"risk": ..., "quote": ...}, ...]` - `[]`, not an error, when nothing
+  was discussed. A malformed item (missing `risk` or `quote`) is dropped
+  rather than failing the whole extraction.
+- **Its own independent pass**: implemented with its own LLM call rather
+  than folded into summary generation's call (which
+  technical-design.md §11 originally suggested sharing) - keeping every
+  extraction pass independent means one pass's failure never costs the
+  others.
+- **Wired into ingestion**: runs right after sentiment scoring in
+  `ingest_transcript`, same off-request-path, idempotent-upsert pattern.
+
+Not yet built: quarter-over-quarter comparison (technical-design.md §12,
+diffing consecutive `earnings_insights` rows) and a scheduled batch
+runner over the earnings calendar to decide which ticker/quarter pairs to
+ingest.
 
 ### Intent Classification
 

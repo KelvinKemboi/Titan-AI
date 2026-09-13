@@ -63,6 +63,14 @@ def _no_sentiment_generation(monkeypatch):
     return mock_generate
 
 
+# Risk extraction is exercised on its own in test_risk.py - same reasoning.
+@pytest.fixture(autouse=True)
+def _no_risk_generation(monkeypatch):
+    mock_generate = MagicMock()
+    monkeypatch.setattr("src.earnings.ingestion.generate_risks", mock_generate)
+    return mock_generate
+
+
 # idempotency: an already-ingested (ticker, fiscal_year, fiscal_quarter)
 def test_returns_existing_row_without_calling_the_provider(monkeypatch):
     mock_get_transcript = MagicMock()
@@ -234,6 +242,40 @@ def test_losing_the_insert_race_does_not_re_trigger_sentiment_generation(monkeyp
     ingest_transcript(db, "AAPL", year=2024, quarter=2)
 
     _no_sentiment_generation.assert_not_called()
+
+
+# a freshly-inserted transcript's risks get extracted (technical-design.md §11)
+def test_a_fresh_insert_triggers_risk_generation(monkeypatch, _no_risk_generation):
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
+    db = _db_with_no_existing_row()
+    db.execute.return_value.scalar_one_or_none.return_value = 42
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_risk_generation.assert_called_once_with(db, 42, "Operator: Welcome to the call...")
+
+
+def test_an_already_existing_row_does_not_re_trigger_risk_generation(monkeypatch, _no_risk_generation):
+    mock_get_transcript = MagicMock()
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", mock_get_transcript)
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = object()
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_risk_generation.assert_not_called()
+
+
+def test_losing_the_insert_race_does_not_re_trigger_risk_generation(monkeypatch, _no_risk_generation):
+    monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
+    db = MagicMock()
+    db.query.return_value.filter.return_value.one_or_none.return_value = None
+    db.query.return_value.filter.return_value.one.return_value = object()
+    db.execute.return_value.scalar_one_or_none.return_value = None  # conflict - lost the race
+
+    ingest_transcript(db, "AAPL", year=2024, quarter=2)
+
+    _no_risk_generation.assert_not_called()
 
 
 def test_insert_conflict_target_is_ticker_fiscal_year_fiscal_quarter(monkeypatch):
