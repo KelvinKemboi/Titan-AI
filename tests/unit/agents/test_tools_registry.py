@@ -3,7 +3,9 @@ from src.agents.tools import DISPATCH, TOOLS, call_tool
 
 # every tool submodule's schemas are aggregated into one list Claude sees
 def test_tools_aggregates_every_submodule():
-    assert {t["name"] for t in TOOLS} == {"get_factor_scores", "compare_tickers", "search_memos"}
+    assert {t["name"] for t in TOOLS} == {
+        "get_factor_scores", "compare_tickers", "search_memos", "get_earnings_insight", "search_earnings",
+    }
 
 
 # ... and DISPATCH covers exactly the same names, with no collisions silently dropping one

@@ -41,7 +41,8 @@ rewrite.
 │   │   ├── scheduler.py        # Runs the scan on a recurring (hourly) schedule
 │   │   ├── explain.py          # Factor Score Explanation Engine (per-factor score/weight/driver)
 │   │   ├── memo_indexing.py    # Embeds + upserts each scan's analyst memos (memo_embeddings)
-│   │   └── memo_search.py      # Cosine-similarity search over memo_embeddings
+│   │   ├── memo_search.py      # Cosine-similarity search over memo_embeddings
+│   │   └── earnings_search.py  # Cosine-similarity search over earnings_chunks
 │   ├── api/
 │   │   ├── main.py             # FastAPI app + router registration
 │   │   ├── config.py           # Settings sourced from env vars (API_HOST, API_PORT, ...)
@@ -51,7 +52,8 @@ rewrite.
 │   │       ├── health.py       # GET /health - DB connectivity check
 │   │       ├── rankings.py     # GET /rankings
 │   │       ├── company.py      # GET /company/{ticker}
-│   │       └── compare.py      # GET /compare
+│   │       ├── compare.py      # GET /compare
+│   │       └── earnings.py     # GET /earnings/{ticker}; get_earnings_for_ticker (shared with the tool below)
 │   ├── agents/
 │   │   ├── chat_service.py     # Chat/Agent Service: Claude tool-calling loop + conversation memory
 │   │   ├── entity_tracker.py   # extract_entities: tickers/factors mentioned, for pronoun resolution
@@ -60,7 +62,8 @@ rewrite.
 │   │       ├── __init__.py     # Aggregates every tool submodule's TOOLS/DISPATCH into one registry
 │   │       ├── base.py         # Shared tool contract: every tool returns source metadata
 │   │       ├── factor_tools.py # get_factor_scores, compare_tickers Claude tool schemas
-│   │       └── memo_tools.py   # search_memos Claude tool schema (qualitative retrieval)
+│   │       ├── memo_tools.py   # search_memos Claude tool schema (qualitative retrieval)
+│   │       └── earnings_tools.py # get_earnings_insight, search_earnings Claude tool schemas
 │   ├── embeddings/
 │   │   └── service.py          # embed_text/embed_texts: Voyage AI, batched + retried
 │   ├── earnings/
@@ -239,6 +242,15 @@ curl -X POST http://localhost:8000/chat \
 # 401 without a valid Authorization header - see "Auth" below. Omit
 # session_id to start a new conversation; pass a previous session_id back
 # to continue it - as long as it's yours (see "Auth").
+
+curl http://localhost:8000/earnings/NVDA
+# {"ticker": "NVDA", "transcripts": [{"transcript_id": 9, "fiscal_year": 2024,
+#   "fiscal_quarter": "Q3", "source_url": "...", "ingested_at": "...",
+#   "insight": {"summary": "...", "guidance_direction": "raised", "guidance_quote": "...",
+#              "sentiment_score": 0.8, "risks": [{"risk": "...", "quote": "..."}], ...}}, ...]}
+# most-recent quarter first; 404 for an unknown ticker; "transcripts": [] (not 404)
+# for a real ticker with none ingested yet; "insight": null for a transcript whose
+# extraction passes haven't run/completed yet (src/earnings/ingestion.py)
 ```
 
 ### Auth
@@ -715,6 +727,57 @@ Not yet built: quarter-over-quarter comparison (technical-design.md §12,
 diffing consecutive `earnings_insights` rows) and a scheduled batch
 runner over the earnings calendar to decide which ticker/quarter pairs to
 ingest.
+
+### Earnings API & Chat Tools
+
+Ingested earnings data (above) is exposed two ways: an HTTP endpoint for
+direct/external consumers, and two Chat/Agent Service tools so `/chat` can
+answer earnings questions the same way it already answers factor-score
+and memo questions.
+
+`GET /earnings/{ticker}` (`src/api/routes/earnings.py`) - see the curl
+example in "API Gateway" above. Its core query function,
+`get_earnings_for_ticker(db, ticker)`, is also what the
+`get_earnings_insight` tool below calls - the same
+route-function-shared-with-a-tool pattern `src/api/routes/compare.py`'s
+`compare_tickers` already established for `factor_tools.py`.
+
+`src/agents/tools/earnings_tools.py` adds two tools to the registry
+(`src/agents/tools/__init__.py` - nothing in `chat_service.py` itself
+needed to change):
+
+- **`get_earnings_insight(ticker, quarter?)`** - one ticker's summary,
+  guidance direction + quote, sentiment score, and risks. Omit `quarter`
+  for the latest ingested one. Raises (→ a graceful chat error, not a
+  500) if the ticker has no ingested transcripts, or the requested
+  quarter was never ingested - the same `ValueError`-becomes-`is_error`
+  contract `factor_tools.py`/`memo_tools.py` already use.
+- **`search_earnings(query)`** - semantic search over `earnings_chunks`
+  across every ticker (`src/analytics/earnings_search.py`, mirroring
+  `memo_search.py`'s cosine-distance search exactly). Use for qualitative
+  questions with no single ticker named.
+
+Both follow the same source-attribution contract as the Phase 1 tools:
+every result is a `Source` with `ref_id` set to the **`transcript_id`**
+it came from (`type="earnings_insight"` / `type="earnings_chunk"`), so a
+citation and quarter-over-quarter comparison can both point back to an
+exact ingested transcript, not just a ticker.
+
+**Manual end-to-end test** (the acceptance criterion this exists for):
+"Summarize NVDA's latest earnings call" (the product brief's own
+example) was run through the *real* `chat_service.answer_question` loop
+against a *real*, freshly-ingested NVDA transcript (genuine verbatim
+Q&A content from NVIDIA's real Q3 FY2024 call) and a *real* `GET
+/earnings/NVDA` call via `TestClient` with no dependency overrides - only
+the actual Claude inference itself was stubbed (no working
+`ANTHROPIC_API_KEY` in this environment). Confirmed: the model's
+simulated first turn calls `get_earnings_insight({"ticker": "NVDA"})`
+through the real tool registry and dispatch; the real DB retrieval
+returns the real transcript's insight; the final answer correctly
+references the call's content (Data Center growth, confidence through
+2025) and carries exactly one source - `type="earnings_insight"`,
+`ticker="NVDA"`, `ref_id` equal to the real `transcript_id` just
+ingested.
 
 ### Intent Classification
 

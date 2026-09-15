@@ -267,7 +267,9 @@ def test_all_tools_remain_available_regardless_of_classified_intent(monkeypatch)
 
         tools_sent = client.messages.create.call_args.kwargs["tools"]
         assert tools_sent == TOOLS
-        assert {t["name"] for t in tools_sent} == {"get_factor_scores", "compare_tickers", "search_memos"}
+        assert {t["name"] for t in tools_sent} == {
+            "get_factor_scores", "compare_tickers", "search_memos", "get_earnings_insight", "search_earnings",
+        }
 
 
 # a classifier that returns nothing- falls back to the unmodified system prompt

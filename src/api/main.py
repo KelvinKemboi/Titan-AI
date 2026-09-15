@@ -5,7 +5,7 @@ Titan API Gateway. Run locally:
 from fastapi import FastAPI
 
 from src.api.config import settings
-from src.api.routes import chat, company, compare, health, rankings
+from src.api.routes import chat, company, compare, earnings, health, rankings
 import uvicorn
 
 app = FastAPI(title="Titan API Gateway")
@@ -15,6 +15,7 @@ app.include_router(rankings.router)
 app.include_router(company.router)
 app.include_router(compare.router)
 app.include_router(chat.router)
+app.include_router(earnings.router)
 
 
 if __name__ == "__main__":

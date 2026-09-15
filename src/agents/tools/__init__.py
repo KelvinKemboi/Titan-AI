@@ -1,18 +1,18 @@
 """
 Aggregates every tool submodule's TOOLS/DISPATCH into the single registry
 the Chat/Agent Service (src/agents/chat_service.py) passes to Claude - so
-adding a new tool category (memo_tools, and later Phase 2's earnings
-tools) means adding a submodule here, not touching chat_service.py.
+adding a new tool category (memo_tools, earnings_tools, ...) means adding
+a submodule here, not touching chat_service.py.
 """
 from typing import List
 
 from sqlalchemy.orm import Session
 
-from src.agents.tools import factor_tools, memo_tools
+from src.agents.tools import earnings_tools, factor_tools, memo_tools
 from src.agents.tools.base import ToolResult
 
-TOOLS: List[dict] = factor_tools.TOOLS + memo_tools.TOOLS
-DISPATCH = {**factor_tools.DISPATCH, **memo_tools.DISPATCH}
+TOOLS: List[dict] = factor_tools.TOOLS + memo_tools.TOOLS + earnings_tools.TOOLS
+DISPATCH = {**factor_tools.DISPATCH, **memo_tools.DISPATCH, **earnings_tools.DISPATCH}
 
 
 def call_tool(db: Session, name: str, tool_input: dict) -> ToolResult:
