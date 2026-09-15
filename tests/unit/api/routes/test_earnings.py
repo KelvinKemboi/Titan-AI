@@ -30,11 +30,11 @@ def _transcript(id=1, ticker="AAPL", fiscal_year=2024, fiscal_quarter="Q2", inge
 
 
 def _insight(transcript_id=1, summary="a summary", guidance_direction="raised", guidance_quote="a quote",
-             sentiment_score=0.5, risks=None):
+             sentiment_score=0.5, risks=None, qoq_changes=None):
     return EarningsInsight(
         transcript_id=transcript_id, summary=summary, guidance_direction=guidance_direction,
         guidance_quote=guidance_quote, sentiment_score=sentiment_score, risks=risks or [],
-        generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        qoq_changes=qoq_changes, generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
 
@@ -93,3 +93,24 @@ def test_ticker_is_normalized(db, client):
     client.get("/earnings/aapl")
 
     assert db.get.call_args.args[1] == "AAPL"
+
+
+def test_qoq_changes_is_included_in_the_insight(db, client):
+    qoq = {"status": "ok", "guidance_direction": {"prior": "maintained", "current": "raised", "changed": True}}
+    db.get.return_value = Company(ticker="AAPL")
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [_transcript()]
+    db.query.return_value.filter.return_value.one_or_none.return_value = _insight(qoq_changes=qoq)
+
+    resp = client.get("/earnings/AAPL")
+
+    assert resp.json()["transcripts"][0]["insight"]["qoq_changes"] == qoq
+
+
+def test_qoq_changes_defaults_to_none_when_absent(db, client):
+    db.get.return_value = Company(ticker="AAPL")
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [_transcript()]
+    db.query.return_value.filter.return_value.one_or_none.return_value = _insight(qoq_changes=None)
+
+    resp = client.get("/earnings/AAPL")
+
+    assert resp.json()["transcripts"][0]["insight"]["qoq_changes"] is None

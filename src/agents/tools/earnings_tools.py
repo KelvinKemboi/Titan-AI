@@ -15,10 +15,13 @@ GET_EARNINGS_INSIGHT_SCHEMA = {
     "description": (
         "Get a single ticker's earnings call insights: summary, forward "
         "guidance direction (with supporting quote), management tone "
-        "sentiment score, and risks management discussed on the call. "
-        "Defaults to the ticker's latest ingested quarter if `quarter` is "
-        "omitted. Use for 'summarize X's latest earnings call' / 'did X's "
-        "guidance improve' / 'what risks did X mention' questions."
+        "sentiment score, risks management discussed on the call, and how "
+        "each of those changed from the prior quarter (qoq_changes - "
+        "'insufficient_history' if this is the ticker's first ingested "
+        "quarter). Defaults to the ticker's latest ingested quarter if "
+        "`quarter` is omitted. Use for 'summarize X's latest earnings "
+        "call' / 'did X's guidance improve' / 'what risks did X mention' "
+        "/ 'what changed for X from last quarter' questions."
     ),
     "input_schema": {
         "type": "object",
@@ -82,6 +85,7 @@ def get_earnings_insight(db: Session, ticker: str, quarter: Optional[int] = None
         # Numeric (DB) -> float: data/detail are loosely-typed Dict[str, Any]
         "sentiment_score": float(insight.sentiment_score) if insight and insight.sentiment_score is not None else None,
         "risks": insight.risks if insight else [],
+        "qoq_changes": insight.qoq_changes if insight else None,
     }
     return ToolResult(
         data={

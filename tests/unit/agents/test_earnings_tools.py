@@ -18,10 +18,10 @@ def _transcript_detail(fiscal_year=2024, fiscal_quarter="Q2", transcript_id=1, i
 
 
 def _insight_detail(summary="a summary", guidance_direction="raised", guidance_quote="a quote",
-                     sentiment_score=0.5, risks=None):
+                     sentiment_score=0.5, risks=None, qoq_changes=None):
     return EarningsInsightDetail(
         summary=summary, guidance_direction=guidance_direction, guidance_quote=guidance_quote,
-        sentiment_score=sentiment_score, risks=risks or [],
+        sentiment_score=sentiment_score, risks=risks or [], qoq_changes=qoq_changes,
         generated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
@@ -97,6 +97,31 @@ def test_with_no_insight_generated_yet_returns_none_fields_not_an_error(monkeypa
 
     assert result.data["summary"] is None
     assert result.data["risks"] == []
+    assert result.data["qoq_changes"] is None
+
+
+def test_qoq_changes_is_included_in_data_and_detail(monkeypatch):
+    qoq = {"status": "ok", "guidance_direction": {"prior": "maintained", "current": "raised", "changed": True}}
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker",
+        MagicMock(return_value=[_transcript_detail(insight=_insight_detail(qoq_changes=qoq))]),
+    )
+
+    result = get_earnings_insight(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["qoq_changes"] == qoq
+    assert result.sources[0].detail["qoq_changes"] == qoq
+
+
+def test_insufficient_history_qoq_changes_is_passed_through_as_is(monkeypatch):
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker",
+        MagicMock(return_value=[_transcript_detail(insight=_insight_detail(qoq_changes={"status": "insufficient_history"}))]),
+    )
+
+    result = get_earnings_insight(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["qoq_changes"] == {"status": "insufficient_history"}
 
 
 def test_raises_for_a_ticker_with_no_ingested_transcripts(monkeypatch):

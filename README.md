@@ -74,7 +74,8 @@ rewrite.
 │   │   ├── summary.py          # generate_summary: LLM summary of prepared remarks -> earnings_insights.summary
 │   │   ├── guidance.py         # generate_guidance: structured guidance_direction + quote -> earnings_insights
 │   │   ├── sentiment.py        # generate_sentiment: rubric-based Q&A tone score -> earnings_insights.sentiment_score
-│   │   └── risk.py             # generate_risks: {risk, quote} list scoped to this call -> earnings_insights.risks
+│   │   ├── risk.py             # generate_risks: {risk, quote} list scoped to this call -> earnings_insights.risks
+│   │   └── qoq.py              # generate_qoq_changes: deterministic diff vs. prior quarter -> earnings_insights.qoq_changes
 │   └── data/
 │       ├── models.py       # SQLAlchemy models: companies, scan_runs, factor_scores, memo_embeddings
 │       ├── db.py           # Engine/session, reads DATABASE_URL
@@ -247,7 +248,11 @@ curl http://localhost:8000/earnings/NVDA
 # {"ticker": "NVDA", "transcripts": [{"transcript_id": 9, "fiscal_year": 2024,
 #   "fiscal_quarter": "Q3", "source_url": "...", "ingested_at": "...",
 #   "insight": {"summary": "...", "guidance_direction": "raised", "guidance_quote": "...",
-#              "sentiment_score": 0.8, "risks": [{"risk": "...", "quote": "..."}], ...}}, ...]}
+#              "sentiment_score": 0.8, "risks": [{"risk": "...", "quote": "..."}],
+#              "qoq_changes": {"status": "ok", "guidance_direction": {"prior": "maintained",
+#                "current": "raised", "changed": true}, "sentiment_delta": 0.3,
+#                "new_risks": [...], "resolved_risks": [...]}, ...}}, ...]}
+# qoq_changes is {"status": "insufficient_history"} for a ticker's first ingested quarter
 # most-recent quarter first; 404 for an unknown ticker; "transcripts": [] (not 404)
 # for a real ticker with none ingested yet; "insight": null for a transcript whose
 # extraction passes haven't run/completed yet (src/earnings/ingestion.py)
@@ -723,10 +728,44 @@ insight = generate_risks(db, transcript.id, transcript.raw_text)  # does not com
 - **Wired into ingestion**: runs right after sentiment scoring in
   `ingest_transcript`, same off-request-path, idempotent-upsert pattern.
 
-Not yet built: quarter-over-quarter comparison (technical-design.md §12,
-diffing consecutive `earnings_insights` rows) and a scheduled batch
-runner over the earnings calendar to decide which ticker/quarter pairs to
-ingest.
+### Quarter-over-Quarter Comparison
+
+`src/earnings/qoq.py:generate_qoq_changes(db, transcript_id, ticker)`
+diffs a transcript's `earnings_insights` against the same ticker's
+immediately prior ingested quarter (technical-design.md §12) and
+persists the result to `earnings_insights.qoq_changes`:
+
+```python
+from src.earnings.qoq import generate_qoq_changes
+
+insight = generate_qoq_changes(db, transcript.id, "AAPL")  # does not commit
+```
+
+- **Deterministic, no LLM call**: a plain diff over the already-extracted
+  structured fields (guidance_direction, sentiment_score, risks - §9-11)
+  - the whole reason those are extracted as structured fields rather
+    than left in prose is so this diff doesn't need a model call at all.
+- **`insufficient_history`, not a misleading diff**: the acceptance
+  criterion this exists for. A ticker's first ingested quarter (no prior
+  transcript at all), or a prior transcript that exists but has no
+  `earnings_insights` yet, both return `{"status":
+  "insufficient_history"}` explicitly rather than an empty or all-"new" diff.
+- **Risk set difference is text-matched, not semantic**: `new_risks`/
+  `resolved_risks` compare on the risk statement's own text
+  (case/whitespace-normalized only). A documented limitation: the same
+  underlying risk phrased differently across two quarters counts as both
+  resolved (old phrasing) and new (new phrasing) - fixing that would mean
+  an LLM judgment call, exactly the unreliability a deterministic pass
+  exists to avoid.
+- **Wired last**: runs after summary/guidance/sentiment/risk in
+  `ingest_transcript`, since it diffs against what they just wrote; a
+  failure here is logged and swallowed like the other passes, even
+  though (unlike them) there's no model call that could fail - a bug in
+  this pass must still never block the rest of ingestion.
+
+Not yet built: a scheduled batch runner over the earnings calendar to
+decide which ticker/quarter pairs to ingest, and Automatic Analyst-Style
+Report (technical-design.md §13, the next Phase 2 feature).
 
 ### Earnings API & Chat Tools
 

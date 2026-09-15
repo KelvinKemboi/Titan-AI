@@ -5,7 +5,7 @@ retrieval function both this route and
 src/agents/tools/earnings_tools.py's get_earnings_insight tool call
 """
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ class EarningsInsightDetail(BaseModel):
     guidance_quote: Optional[str] = None
     sentiment_score: Optional[float] = None
     risks: List[Dict[str, str]] = []
+    qoq_changes: Optional[Dict[str, Any]] = None
     generated_at: Optional[datetime] = None
 
 
@@ -76,6 +77,7 @@ def get_earnings_for_ticker(db: Session, ticker: str) -> List[EarningsTranscript
                     guidance_quote=insight.guidance_quote,
                     sentiment_score=float(insight.sentiment_score) if insight.sentiment_score is not None else None,
                     risks=insight.risks or [],
+                    qoq_changes=insight.qoq_changes,
                     generated_at=insight.generated_at,
                 )
                 if insight is not None
