@@ -64,6 +64,10 @@ st.markdown(
 
 # The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP
 CHAT_API_URL = os.environ.get("CHAT_API_URL", f"http://localhost:{os.environ.get('API_PORT', '8000')}/chat")
+REPORT_API_URL_TEMPLATE = os.environ.get(
+    "REPORT_API_URL_TEMPLATE",
+    f"http://localhost:{os.environ.get('API_PORT', '8000')}/company/{{ticker}}/report",
+)
 
 # SSL Bypass for Mac/PC (Fixes "Certificate Verify Failed" errors)
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -76,6 +80,24 @@ if "chat_session_id" not in st.session_state:
     st.session_state["chat_session_id"] = None
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
+
+
+def _fetch_report_memo(ticker, fallback_memo):
+    """adds the "Recent Earnings" section when
+    the ticker has ingested earnings data. Falls back to the scan's own
+    plain memo if the gateway is unreachable, so a
+    gateway outage degrades the report rather than breaking the page"""
+    cache = st.session_state.setdefault("report_memos", {})
+    if ticker in cache:
+        return cache[ticker]
+    try:
+        resp = requests.get(REPORT_API_URL_TEMPLATE.format(ticker=ticker), timeout=10)
+        resp.raise_for_status()
+        memo = resp.json()["memo"]
+    except requests.RequestException:
+        memo = fallback_memo
+    cache[ticker] = memo
+    return memo
 
 
 def _format_as_of(as_of):
@@ -219,6 +241,9 @@ if st.button("Initialize Market Scan"):
         else:
             status.update(label="Scan Complete!", state="complete", expanded=False)
             st.session_state["scan_results"] = results
+            # A fresh scan can change factor scores that generate_ticker_report
+            # reads - drop any memos cached from the previous scan.
+            st.session_state["report_memos"] = {}
             # Without this, `has_results` at the top of *this* run was already
             # computed (stale, still False) before set_page_config ran, so the
             # sidebar's auto-expand request wouldn't take effect until some
@@ -255,7 +280,7 @@ if results:
         with st.expander(f"**{stock.ticker}** | Score: {int(stock.score)}"):
             col1, col2 = st.columns([1.5, 1])
             with col1:
-                st.markdown(stock.memo)
+                st.markdown(_fetch_report_memo(stock.ticker, stock.memo))
             with col2:
                 # Radar Chart Visualization
                 categories = list(WEIGHTS.keys())

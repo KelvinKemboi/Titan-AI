@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from src.analytics.report import AnalystReport, generate_ticker_report
 from src.api.deps import get_db
 from src.data.cache import cache_get, cache_set, company_cache_key
 from src.data.models import Company, FactorScore
@@ -76,3 +77,16 @@ def get_company(ticker: str, db: Session = Depends(get_db)):
     )
     cache_set(cache_key, detail.model_dump_json())
     return detail
+
+
+@router.get("/company/{ticker}/report", response_model=AnalystReport)
+def get_company_report(ticker: str, db: Session = Depends(get_db)):
+    """Analyst-style memo: latest factor scores
+    + latest earnings insight, combined by src.analytics.report"""
+    ticker = ticker.strip().upper()
+    if db.get(Company, ticker) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown ticker '{ticker}'")
+    try:
+        return generate_ticker_report(db, ticker)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"No factor scores found for ticker '{ticker}'")

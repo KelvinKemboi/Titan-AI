@@ -110,8 +110,12 @@ class RoboAnalyst:
         except Exception:
             return False
 
-    def generate_memo(self):
-        """Generates the Wall Street style write-up."""
+    def generate_memo(self, earnings_insight=None):
+        """Generates the Wall Street style write-up.
+        `earnings_insight`: an optional plain
+        dict with `summary`/`guidance_direction`/`risks` keys, as returned by
+        src.analytics.report._earnings_insight_dict()
+        """
         m = self.metrics
         s = self.score
 
@@ -136,4 +140,28 @@ class RoboAnalyst:
         * **Momentum:** RSI is {m['RSI']:.1f}. {' Healthy buying pressure.' if 40 < m['RSI'] < 70 else 'Caution: Potential reversal zone.'}
         * **Quality:** Net Margins of {m['Margin']:.1%} suggest {'heavy competitive moat.' if m['Margin'] > 0.20 else 'standard industry profitability.'}
         * **Risk:** Beta of {m['Beta']:.2f} indicates {'low volatility.' if m['Beta'] < 1.0 else 'higher than average market sensitivity.'}
+        """
+        if earnings_insight:
+            self.memo += self._format_earnings_section(earnings_insight)
+        return self.memo
+
+    @staticmethod
+    def _format_earnings_section(earnings_insight):
+        """Renders the conditional "Recent Earnings" section - summary,
+        guidance direction, and the top (first) risk from the ticker's
+        latest earnings_insights row. Every field degrades to a plain
+        fallback string rather than crashing on a partially-populated
+        insight (e.g. summary generated but risk extraction hasn't run
+        yet for this transcript)."""
+        summary = earnings_insight.get("summary") or "No summary available."
+        guidance = earnings_insight.get("guidance_direction") or "unclear"
+        risks = earnings_insight.get("risks") or []
+        top_risk = risks[0]["risk"] if risks else "No specific risks flagged this quarter."
+
+        return f"""
+
+        **Recent Earnings:**
+        {summary}
+        * **Guidance:** {guidance.replace('_', ' ').title()}
+        * **Top Risk:** {top_risk}
         """

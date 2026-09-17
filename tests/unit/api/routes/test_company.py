@@ -120,3 +120,76 @@ def test_redis_unavailable_degrades_to_a_db_read(monkeypatch, client, db):
 
     assert resp.status_code == 200
     assert resp.json()["ticker"] == "AAPL"
+
+
+# GET /company/{ticker}/report: the analyst
+# memo, latest factor scores combined with the ticker's latest earnings
+# insight if one exists.
+def _factor_score_with_metrics(ticker="AAPL"):
+    """generate_report() needs raw_metrics fields (Price/RSI/Trend/etc.)
+    to build a memo - _factor_score() above leaves raw_metrics={} since
+    the plain /company/{ticker} endpoint never reads it."""
+    factor_score = _factor_score(ticker=ticker)
+    factor_score.raw_metrics = {
+        "Price": 190.5, "RSI": 65.0, "Trend": "Bullish",
+        "Val_Metric": 1.5, "Val_Type": "PEG",
+        "Margin": 0.25, "Debt": 40.0, "Beta": 0.9,
+        "Scores": [75.0, 100.0, 100.0, 80.0, 90.0],
+    }
+    return factor_score
+
+
+def test_report_unknown_ticker_404(client, db):
+    db.get.return_value = None
+
+    resp = client.get("/company/ZZZZNOTREAL/report")
+
+    assert resp.status_code == 404
+
+
+def test_report_ticker_with_no_factor_scores_404(client, db):
+    db.get.return_value = _company()
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+
+    resp = client.get("/company/AAPL/report")
+
+    assert resp.status_code == 404
+
+
+def test_report_with_no_earnings_data_has_no_recent_earnings_section(client, db):
+    db.get.return_value = _company()
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = _factor_score_with_metrics()
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+
+    resp = client.get("/company/AAPL/report")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_earnings_data"] is False
+    assert "Recent Earnings" not in body["memo"]
+
+
+def test_report_with_earnings_data_adds_a_recent_earnings_section(client, db):
+    from src.data.models import EarningsInsight, EarningsTranscript
+
+    db.get.return_value = _company()
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = _factor_score_with_metrics()
+    db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
+        EarningsTranscript(
+            id=1, ticker="AAPL", fiscal_year=2024, fiscal_quarter="Q2",
+            raw_text="irrelevant", ingested_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+    ]
+    db.query.return_value.filter.return_value.one_or_none.return_value = EarningsInsight(
+        transcript_id=1, summary="Record revenue.", guidance_direction="raised",
+        risks=[{"risk": "Supply chain", "quote": "q"}],
+    )
+
+    resp = client.get("/company/AAPL/report")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_earnings_data"] is True
+    assert "**Recent Earnings:**" in body["memo"]
+    assert "Record revenue." in body["memo"]
+    assert "**Guidance:** Raised" in body["memo"]
