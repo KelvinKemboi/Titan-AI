@@ -2,6 +2,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Column,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -184,4 +185,33 @@ class EarningsInsight(Base):
 
     __table_args__ = (
         Index("ix_earnings_insights_transcript_id", "transcript_id", unique=True),
+    )
+
+class EarningsIngestionJob(Base):
+    """One calendar-discovered reporting event for one ticker"""
+
+    __tablename__ = "earnings_ingestion_jobs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticker = Column(String, ForeignKey("companies.ticker"), nullable=False)
+    earnings_date = Column(Date, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending | succeeded | exhausted
+    fiscal_year = Column(Integer)
+    fiscal_quarter = Column(String)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    last_attempted_at = Column(TIMESTAMP(timezone=True))
+    last_error = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ix_earnings_ingestion_jobs_ticker_earnings_date",
+            "ticker", "earnings_date",
+            unique=True,
+        ),
+        Index(
+            "ix_earnings_ingestion_jobs_status_next_attempt_at",
+            "status", "next_attempt_at",
+        ),
     )
