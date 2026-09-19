@@ -215,3 +215,20 @@ class EarningsIngestionJob(Base):
             "status", "next_attempt_at",
         ),
     )
+
+# one row per ticker: tracks scripts/backfill_earnings_transcripts.py's
+# one-time historical backfill so a killed/resumed run skips tickers
+# already done instead of restarting from the first ticker
+class EarningsBackfillProgress(Base):
+    """Whether the one-time historical backfill (technical-design.md §15)
+    has already processed a ticker - `status="done"` tickers are skipped
+    on a resumed run; `status="failed"` (the provider call itself failed,
+    not just "fewer than 4 quarters exist") is retried on the next run."""
+
+    __tablename__ = "earnings_backfill_progress"
+
+    ticker = Column(String, ForeignKey("companies.ticker"), primary_key=True)
+    status = Column(String, nullable=False)  # done | failed
+    quarters_ingested = Column(Integer, nullable=False, default=0)
+    attempted_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    error = Column(Text)
