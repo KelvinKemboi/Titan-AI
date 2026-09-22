@@ -8,11 +8,11 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from src.agents.tools import earnings_tools, factor_tools, memo_tools
+from src.agents.tools import earnings_tools, factor_tools, memo_tools, report_tools
 from src.agents.tools.base import ToolResult
 
-TOOLS: List[dict] = factor_tools.TOOLS + memo_tools.TOOLS + earnings_tools.TOOLS
-DISPATCH = {**factor_tools.DISPATCH, **memo_tools.DISPATCH, **earnings_tools.DISPATCH}
+TOOLS: List[dict] = factor_tools.TOOLS + memo_tools.TOOLS + earnings_tools.TOOLS + report_tools.TOOLS
+DISPATCH = {**factor_tools.DISPATCH, **memo_tools.DISPATCH, **earnings_tools.DISPATCH, **report_tools.DISPATCH}
 
 
 def call_tool(db: Session, name: str, tool_input: dict) -> ToolResult:

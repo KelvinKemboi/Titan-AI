@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.agents.tools.earnings_tools import DISPATCH, TOOLS, get_earnings_insight, search_earnings
+from src.agents.tools.earnings_tools import DISPATCH, TOOLS, get_earnings_insight, get_qoq_changes, search_earnings
 from src.analytics.earnings_search import EarningsChunkHit
 from src.api.routes.earnings import EarningsInsightDetail, EarningsTranscriptDetail
 
@@ -150,7 +150,91 @@ def test_ticker_is_normalized(monkeypatch):
     assert mock_get.call_args.args[1] == "AAPL"
 
 
-# search_earnings 
+# get_qoq_changes
+def test_qoq_changes_surfaces_the_already_persisted_field(monkeypatch):
+    qoq = {"status": "ok", "guidance_direction": {"prior": "maintained", "current": "raised", "changed": True}}
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker",
+        MagicMock(return_value=[_transcript_detail(transcript_id=9, insight=_insight_detail(qoq_changes=qoq))]),
+    )
+
+    result = get_qoq_changes(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["qoq_changes"] == qoq
+    assert result.sources[0].type == "earnings_insight"
+    assert result.sources[0].ticker == "AAPL"
+    assert result.sources[0].ref_id == 9
+    assert result.sources[0].detail["qoq_changes"] == qoq
+
+
+def test_qoq_changes_always_reads_the_latest_quarter_ignoring_older_ones(monkeypatch):
+    latest = _transcript_detail(
+        fiscal_year=2024, fiscal_quarter="Q2", transcript_id=2,
+        insight=_insight_detail(qoq_changes={"status": "ok"}),
+    )
+    older = _transcript_detail(
+        fiscal_year=2024, fiscal_quarter="Q1", transcript_id=1,
+        insight=_insight_detail(qoq_changes={"status": "insufficient_history"}),
+    )
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker", MagicMock(return_value=[latest, older]),
+    )
+
+    result = get_qoq_changes(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["fiscal_quarter"] == "Q2"
+    assert result.data["qoq_changes"] == {"status": "ok"}
+
+
+def test_qoq_changes_insufficient_history_is_passed_through_as_is(monkeypatch):
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker",
+        MagicMock(return_value=[_transcript_detail(insight=_insight_detail(qoq_changes={"status": "insufficient_history"}))]),
+    )
+
+    result = get_qoq_changes(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["qoq_changes"] == {"status": "insufficient_history"}
+
+
+def test_qoq_changes_with_no_insight_generated_yet_returns_none_not_an_error(monkeypatch):
+    monkeypatch.setattr(
+        "src.agents.tools.earnings_tools._get_earnings_for_ticker",
+        MagicMock(return_value=[_transcript_detail(insight=None)]),
+    )
+
+    result = get_qoq_changes(db=MagicMock(), ticker="AAPL")
+
+    assert result.data["qoq_changes"] is None
+
+
+def test_qoq_changes_raises_for_a_ticker_with_no_ingested_transcripts(monkeypatch):
+    monkeypatch.setattr("src.agents.tools.earnings_tools._get_earnings_for_ticker", MagicMock(return_value=[]))
+
+    with pytest.raises(ValueError, match="ZZZZ"):
+        get_qoq_changes(db=MagicMock(), ticker="ZZZZ")
+
+
+def test_qoq_changes_ticker_is_normalized(monkeypatch):
+    mock_get = MagicMock(return_value=[_transcript_detail(insight=_insight_detail())])
+    monkeypatch.setattr("src.agents.tools.earnings_tools._get_earnings_for_ticker", mock_get)
+
+    get_qoq_changes(db=MagicMock(), ticker=" aapl ")
+
+    assert mock_get.call_args.args[1] == "AAPL"
+
+
+def test_dispatch_maps_get_qoq_changes(monkeypatch):
+    db = MagicMock()
+    mock_get = MagicMock(return_value=[_transcript_detail(insight=_insight_detail())])
+    monkeypatch.setattr("src.agents.tools.earnings_tools._get_earnings_for_ticker", mock_get)
+
+    DISPATCH["get_qoq_changes"](db, {"ticker": "AAPL"})
+
+    mock_get.assert_called_once_with(db, "AAPL")
+
+
+# search_earnings
 def test_search_earnings_returns_sourced_results(monkeypatch):
     hits = [_hit("AAPL", 1), _hit("MSFT", 2)]
     monkeypatch.setattr("src.agents.tools.earnings_tools._search_earnings", MagicMock(return_value=hits))
@@ -214,4 +298,4 @@ def test_dispatch_maps_search_earnings_to_query_input(monkeypatch):
 
 
 def test_schemas_are_registered_in_tools():
-    assert {t["name"] for t in TOOLS} == {"get_earnings_insight", "search_earnings"}
+    assert {t["name"] for t in TOOLS} == {"get_earnings_insight", "get_qoq_changes", "search_earnings"}

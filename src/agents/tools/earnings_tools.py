@@ -40,6 +40,32 @@ GET_EARNINGS_INSIGHT_SCHEMA = {
     },
 }
 
+GET_QOQ_CHANGES_SCHEMA = {
+    "name": "get_qoq_changes",
+    "description": (
+        "Get exactly what changed for a single ticker between its prior "
+        "earnings call and its latest one: guidance direction change, "
+        "management-tone sentiment delta, newly-mentioned risks, and "
+        "risks no longer mentioned. Returns "
+        "{\"status\": \"insufficient_history\"} if the latest ingested "
+        "quarter is this ticker's first. Use for 'what changed from "
+        "last quarter' / 'how does this quarter compare to last "
+        "quarter' questions - a narrower, more direct answer than "
+        "get_earnings_insight's full summary+guidance+sentiment+risks "
+        "bundle (which also includes this same qoq_changes field)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "Stock ticker symbol, e.g. 'NVDA'",
+            },
+        },
+        "required": ["ticker"],
+    },
+}
+
 SEARCH_EARNINGS_SCHEMA = {
     "name": "search_earnings",
     "description": (
@@ -110,6 +136,43 @@ def get_earnings_insight(db: Session, ticker: str, quarter: Optional[int] = None
     )
 
 
+def get_qoq_changes(db: Session, ticker: str) -> ToolResult:
+    """Tool implementation backing GET_QOQ_CHANGES_SCHEMA - surfaces the
+    ticker's latest ingested quarter's qoq_changes, already computed and
+    persisted at ingestion time (src/earnings/qoq.py:generate_qoq_changes)
+    - never recomputed here, same "read what's already there" approach
+    get_earnings_insight uses for every other insight field."""
+    ticker = ticker.strip().upper()
+    transcripts = _get_earnings_for_ticker(db, ticker)  # most-recent fiscal_year/fiscal_quarter first
+    if not transcripts:
+        raise ValueError(f"No earnings transcripts ingested for ticker '{ticker}'")
+
+    latest = transcripts[0]
+    qoq_changes = latest.insight.qoq_changes if latest.insight else None
+
+    return ToolResult(
+        data={
+            "ticker": ticker,
+            "fiscal_year": latest.fiscal_year,
+            "fiscal_quarter": latest.fiscal_quarter,
+            "qoq_changes": qoq_changes,
+        },
+        sources=[
+            Source(
+                type="earnings_insight",
+                ticker=ticker,
+                ref_id=latest.transcript_id,
+                as_of=latest.ingested_at,
+                detail={
+                    "fiscal_year": latest.fiscal_year,
+                    "fiscal_quarter": latest.fiscal_quarter,
+                    "qoq_changes": qoq_changes,
+                },
+            )
+        ],
+    )
+
+
 def search_earnings(db: Session, query: str) -> ToolResult:
     """Tool implementation backing SEARCH_EARNINGS_SCHEMA."""
     hits = _search_earnings(db, query)
@@ -128,10 +191,11 @@ def search_earnings(db: Session, query: str) -> ToolResult:
     )
 
 
-TOOLS: List[dict] = [GET_EARNINGS_INSIGHT_SCHEMA, SEARCH_EARNINGS_SCHEMA]
+TOOLS: List[dict] = [GET_EARNINGS_INSIGHT_SCHEMA, GET_QOQ_CHANGES_SCHEMA, SEARCH_EARNINGS_SCHEMA]
 DISPATCH = {
     "get_earnings_insight": lambda db, tool_input: get_earnings_insight(
         db, tool_input["ticker"], tool_input.get("quarter"),
     ),
+    "get_qoq_changes": lambda db, tool_input: get_qoq_changes(db, tool_input["ticker"]),
     "search_earnings": lambda db, tool_input: search_earnings(db, tool_input["query"]),
 }
