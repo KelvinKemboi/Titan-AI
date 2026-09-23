@@ -1,0 +1,77 @@
+name: CI
+
+# Quoted "on" - unquoted, YAML 1.1 parsers (PyYAML's safe_load included)
+# read the bare word `on` as the boolean True, not the string "on".
+# GitHub Actions' own parser special-cases this and gets it right either
+# way, but quoting avoids relying on that and keeps this file readable
+# by generic YAML tooling (e.g. this repo's own yaml.safe_load-based lint).
+"on":
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  # Fast, deterministic, no external services - every unit test in
+  # tests/unit/ mocks its DB/HTTP dependencies (see tests/unit/analytics/
+  # test_scanner_service.py for the one place a real SessionLocal would
+  # otherwise be touched), so this job needs nothing but Python.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: pytest tests/ -v
+
+  # The Chat/Agent Service eval (technical-design.md §17): formalizes the
+  # ad-hoc "manual test" acceptance criteria into a real CI gate. Runs on
+  # every push/PR unconditionally (deliberately not path-filtered to
+  # src/agents/ alone) - a change to e.g. src/analytics/report.py or
+  # src/earnings/qoq.py changes a tool's answer shape just as much as a
+  # change inside src/agents/ itself would, and "every Chat/Agent Service
+  # change" is a floor on this job's scope, not a ceiling.
+  chat-service-eval:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: titan
+          POSTGRES_PASSWORD: titan
+          POSTGRES_DB: titan
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U titan -d titan"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg2://titan:titan@localhost:5433/titan
+      REDIS_URL: redis://localhost:6380
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Seed deterministic eval fixtures
+        run: python -m scripts.seed_eval_fixtures
+      - name: Run the Chat/Agent Service eval
+        run: python -m scripts.eval_chat_service
