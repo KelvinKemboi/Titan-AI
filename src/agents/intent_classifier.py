@@ -2,9 +2,13 @@
 Intent classification: model call that classifies each incoming chat message before the Chat/Agent
 Service (chat_service.py) decides which tools to foreground
 """
+import time
 from typing import Literal, Optional
 
 import anthropic
+from sqlalchemy.orm import Session
+
+from src.observability.tracing import record_llm_call
 
 # Haiku-class model
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
@@ -58,14 +62,25 @@ INTENT_HINTS = {
 }
 
 
-def classify_intent(question: str, *, client: Optional[anthropic.Anthropic] = None) -> Optional[Intent]:
+def classify_intent(
+    question: str,
+    *,
+    client: Optional[anthropic.Anthropic] = None,
+    db: Optional[Session] = None,
+    request_id: Optional[str] = None,
+) -> Optional[Intent]:
     """
     Classifies `question` into one of Intent's three values via one forced
     tool-call to CLASSIFIER_MODEL. `tool_choice` forces the model to call
     classify_intent (rather than reply with text), and the tool schema's
     `enum` constrains `intent` to exactly one of the three values
+
+    `db`/`request_id` are optional tracing hooks (technical-design.md §18)
+    - omitted, this call simply isn't traced, so every existing caller
+    (eval scripts, direct tests) keeps working unchanged.
     """
     client = client or anthropic.Anthropic()
+    start = time.monotonic()
     try:
         # Call the model with a system prompt that instructs it to classify the question into one of the three intents
         response = client.messages.create(
@@ -78,6 +93,13 @@ def classify_intent(question: str, *, client: Optional[anthropic.Anthropic] = No
         )
     except Exception:
         return None
+    latency_ms = int((time.monotonic() - start) * 1000)
+
+    if db is not None and request_id is not None:
+        record_llm_call(
+            db, request_id=request_id, call_type="intent_classification",
+            model=CLASSIFIER_MODEL, response=response, latency_ms=latency_ms,
+        )
 
     tool_use_block = next((b for b in response.content if b.type == "tool_use"), None) # find the tool_use block in the model's response, if any
     if tool_use_block is None:

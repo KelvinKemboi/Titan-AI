@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -44,10 +45,18 @@ def post_chat(request: ChatRequest, db: Session = Depends(get_db), user_id: str 
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     history = get_recent_messages(db, session.id, limit=CHAT_HISTORY_WINDOW)
-    answer = answer_question(db, request.message, history=history)
+    # Minted here (not inside answer_question) so both this turn's chat_messages
+    # rows can be labeled with it, tying "the question asked" and "the answer
+    # given" to the same trace (technical-design.md §18) as every LLM/tool call
+    # answer_question made while producing it.
+    request_id = str(uuid.uuid4())
+    answer = answer_question(db, request.message, history=history, request_id=request_id)
 
-    add_message(db, session.id, role="user", content=request.message)
-    add_message(db, session.id, role="assistant", content=answer.response, sources=answer.sources)
+    add_message(db, session.id, role="user", content=request.message, request_id=request_id)
+    add_message(
+        db, session.id, role="assistant", content=answer.response,
+        sources=answer.sources, request_id=request_id,
+    )
     db.commit()
 
     return ChatResponse(response=answer.response, sources=answer.sources, session_id=str(session.id))

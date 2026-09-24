@@ -110,3 +110,22 @@ def test_add_message_defaults_to_no_sources():
     message = add_message(db, session_uuid, role="user", content="hello")
 
     assert message.sources == []
+
+
+# request_id (technical-design.md §18) ties this turn to its llm_calls/tool_calls trace
+def test_add_message_persists_the_request_id():
+    db = MagicMock()
+    session_uuid = uuid.uuid4()
+
+    message = add_message(db, session_uuid, role="assistant", content="AAPL scores 90.", request_id="req-123")
+
+    assert message.request_id == "req-123"
+
+
+def test_add_message_defaults_request_id_to_none():
+    db = MagicMock()
+    session_uuid = uuid.uuid4()
+
+    message = add_message(db, session_uuid, role="user", content="hello")
+
+    assert message.request_id is None

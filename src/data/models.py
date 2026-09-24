@@ -1,6 +1,7 @@
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     Date,
     ForeignKey,
@@ -84,7 +85,11 @@ class ChatSession(Base):
 # one row per user/assistant turn in a chat_sessions conversation
 class ChatMessage(Base):
     """One turn (user question or assistant response) in a chat_sessions
-    conversation. `sources`mirrors ToolResult.sources for assistant messages; empty for user ones."""
+    conversation. `sources`mirrors ToolResult.sources for assistant messages; empty for user ones.
+    `request_id` (technical-design.md §18) ties both turns of one /chat
+    call to the llm_calls/tool_calls rows traced under the same id -
+    nullable since it predates this column and a cache hit's turn has
+    nothing to trace either."""
 
     __tablename__ = "chat_messages"
 
@@ -93,10 +98,12 @@ class ChatMessage(Base):
     role = Column(String, nullable=False)  # user | assistant
     content = Column(Text, nullable=False)
     sources = Column(JSONB)
+    request_id = Column(String)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("ix_chat_messages_session_id_created_at", "session_id", "created_at"),
+        Index("ix_chat_messages_request_id", "request_id"),
     )
 
 # one row per ticker per scan run: the embedded analyst memo (RoboAnalyst.generate_memo()
@@ -232,3 +239,56 @@ class EarningsBackfillProgress(Base):
     quarters_ingested = Column(Integer, nullable=False, default=0)
     attempted_at = Column(TIMESTAMP(timezone=True), nullable=False)
     error = Column(Text)
+
+# one row per model API call (intent classification, chat generation, or
+# any future LLM call site that opts in) - the observability/tracing
+# feature (technical-design.md §18) grouping key across a whole /chat
+# request is `request_id`, not session_id, so a request that crashes
+# before its chat_messages row is ever written is still fully traceable.
+class LLMCall(Base):
+    """One `client.messages.create` call and its token usage/cost/latency.
+    `request_id` is a fresh UUID minted once per answer_question() call
+    (technical-design.md §18) - every LLM call and tool call made while
+    answering that one question shares it, letting a bad answer's
+    chat_messages row be joined straight to everything that produced it."""
+
+    __tablename__ = "llm_calls"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    request_id = Column(String, nullable=False)
+    call_type = Column(String, nullable=False)  # intent_classification | chat_generation | ...
+    model = Column(String, nullable=False)
+    input_tokens = Column(Integer)
+    output_tokens = Column(Integer)
+    cost_usd = Column(Numeric)  # None when `model` has no entry in MODEL_PRICING_PER_MILLION_TOKENS
+    latency_ms = Column(Integer)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_llm_calls_request_id", "request_id"),
+        Index("ix_llm_calls_created_at", "created_at"),
+    )
+
+# one row per tool_use block executed within a /chat request - the
+# "which tool call(s) produced the incorrect grounding data" trace
+# (technical-design.md §18): `tool_input`/`sources` are the actual
+# arguments and resulting Source metadata for THIS call specifically,
+# independent of whatever the final aggregated answer ended up citing.
+class ToolCall(Base):
+    """One tool_use block's execution and outcome, keyed by the same
+    request_id as the LLMCall rows from the same /chat request."""
+
+    __tablename__ = "tool_calls"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    request_id = Column(String, nullable=False)
+    tool_name = Column(String, nullable=False)
+    tool_input = Column(JSONB)
+    success = Column(Boolean, nullable=False)
+    error = Column(Text)
+    sources = Column(JSONB)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_tool_calls_request_id", "request_id"),
+    )

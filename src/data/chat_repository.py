@@ -62,14 +62,18 @@ def add_message(
     role: str,
     content: str,
     sources: Optional[List[Source]] = None,
+    request_id: Optional[str] = None,
 ) -> ChatMessage:
     """Persists one turn. `sources` mirrors ToolResult.sources : pass None
-    (or leave the default) for user messages."""
+    (or leave the default) for user messages. `request_id` ties this row to the llm_calls/tool_calls
+    traced under the same id - pass the same one for both the user and
+    assistant rows of one /chat call, since they're one traced request."""
     message = ChatMessage(
         session_id=session_id,
         role=role,
         content=content,
         sources=[s.model_dump(mode="json") for s in sources] if sources else [],
+        request_id=request_id,
     )
     db.add(message)
     return message

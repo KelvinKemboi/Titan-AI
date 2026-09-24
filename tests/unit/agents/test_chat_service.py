@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock # testing utility for creating mock objects
 
@@ -44,8 +45,8 @@ def _tool_use_block(block_id, name, tool_input):
     return SimpleNamespace(type="tool_use", id=block_id, name=name, input=tool_input)
 
 
-def _response(content):
-    return SimpleNamespace(content=content)
+def _response(content, usage=None):
+    return SimpleNamespace(content=content, usage=usage)
 
 
 def _client_with_responses(*responses):
@@ -436,3 +437,164 @@ def test_inconclusive_response_is_not_cached(monkeypatch):
 
     assert result.response == INCONCLUSIVE_RESPONSE
     mock_cache_set.assert_not_called()
+
+
+# --- request tracing (technical-design.md §18) ---
+
+def test_answer_question_generates_a_fresh_request_id_when_none_given(monkeypatch):
+    mock_classify = MagicMock(return_value=None)
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", mock_classify)
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
+
+    request_id = mock_classify.call_args.kwargs["request_id"]
+    assert uuid.UUID(request_id)
+
+
+def test_answer_question_uses_a_given_request_id_instead_of_generating_one(monkeypatch):
+    mock_classify = MagicMock(return_value=None)
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", mock_classify)
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client, request_id="my-request-id")
+
+    assert mock_classify.call_args.kwargs["request_id"] == "my-request-id"
+
+
+def test_classify_intent_is_called_with_db_and_request_id(monkeypatch):
+    mock_classify = MagicMock(return_value=None)
+    monkeypatch.setattr("src.agents.chat_service.classify_intent", mock_classify)
+    client = _client_with_responses(_response([_text_block("Answer.")]))
+    db = MagicMock()
+
+    answer_question(db=db, question="Explain AAPL's score", client=client, request_id="req-1")
+
+    assert mock_classify.call_args.kwargs["db"] is db
+    assert mock_classify.call_args.kwargs["request_id"] == "req-1"
+
+
+def test_generation_call_is_traced_with_request_id_and_call_type(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_llm_call", mock_record)
+    usage = SimpleNamespace(input_tokens=100, output_tokens=20)
+    client = _client_with_responses(_response([_text_block("Answer.")], usage=usage))
+    db = MagicMock()
+
+    answer_question(db=db, question="Explain AAPL's score", client=client, request_id="req-1")
+
+    mock_record.assert_called_once()
+    call_kwargs = mock_record.call_args.kwargs
+    assert call_kwargs["request_id"] == "req-1"
+    assert call_kwargs["call_type"] == "chat_generation"
+    assert call_kwargs["response"].usage is usage
+    assert isinstance(call_kwargs["latency_ms"], int)
+
+
+def test_every_generation_iteration_is_traced_separately(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_llm_call", mock_record)
+    tool_result = _factor_score_result()
+    monkeypatch.setattr("src.agents.chat_service.call_tool", MagicMock(return_value=tool_result))
+    client = _client_with_responses(
+        _response([_tool_use_block("t1", "get_factor_scores", {"ticker": "AAPL"})]),
+        _response([_text_block("AAPL scores 90.")]),
+    )
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client, request_id="req-1")
+
+    assert mock_record.call_count == 2
+    assert all(c.kwargs["request_id"] == "req-1" for c in mock_record.call_args_list)
+
+
+def test_a_failed_generation_call_is_not_traced(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_llm_call", mock_record)
+    client = MagicMock()
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    client.messages.create.side_effect = anthropic.APIConnectionError(request=request)
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
+
+    mock_record.assert_not_called()
+
+
+def test_a_cache_hit_traces_nothing_at_all(monkeypatch):
+    mock_record_llm = MagicMock()
+    mock_record_tool = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_llm_call", mock_record_llm)
+    monkeypatch.setattr("src.agents.chat_service.record_tool_call", mock_record_tool)
+    cached_answer = ChatAnswer(response="Cached answer.", sources=[])
+    monkeypatch.setattr(
+        "src.agents.chat_service.cache_get", MagicMock(return_value=cached_answer.model_dump_json())
+    )
+
+    answer_question(db=_db_with_scan_run_id(42), question="Explain AAPL's score", client=MagicMock())
+
+    mock_record_llm.assert_not_called()
+    mock_record_tool.assert_not_called()
+
+
+# --- tool call tracing (technical-design.md §18) ---
+
+def test_successful_tool_call_is_traced_with_its_input_and_sources(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_tool_call", mock_record)
+    tool_result = _factor_score_result("AAPL", ref_id=1)
+    monkeypatch.setattr("src.agents.chat_service.call_tool", MagicMock(return_value=tool_result))
+    client = _client_with_responses(
+        _response([_tool_use_block("t1", "get_factor_scores", {"ticker": "AAPL"})]),
+        _response([_text_block("AAPL scores 90.")]),
+    )
+
+    answer_question(db=MagicMock(), question="Explain AAPL's score", client=client, request_id="req-1")
+
+    mock_record.assert_called_once()
+    call_kwargs = mock_record.call_args.kwargs
+    assert call_kwargs["request_id"] == "req-1"
+    assert call_kwargs["tool_name"] == "get_factor_scores"
+    assert call_kwargs["tool_input"] == {"ticker": "AAPL"}
+    assert call_kwargs["success"] is True
+    assert call_kwargs["sources"] == [s.model_dump(mode="json") for s in tool_result.sources]
+
+
+def test_failed_tool_call_is_traced_with_success_false_and_the_error(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_tool_call", mock_record)
+    monkeypatch.setattr(
+        "src.agents.chat_service.call_tool", MagicMock(side_effect=ValueError("No factor_scores found for ticker 'ZZZZ'"))
+    )
+    client = _client_with_responses(
+        _response([_tool_use_block("t1", "get_factor_scores", {"ticker": "ZZZZ"})]),
+        _response([_text_block("I couldn't find ZZZZ.")]),
+    )
+
+    answer_question(db=MagicMock(), question="Explain ZZZZ's score", client=client, request_id="req-1")
+
+    mock_record.assert_called_once()
+    call_kwargs = mock_record.call_args.kwargs
+    assert call_kwargs["request_id"] == "req-1"
+    assert call_kwargs["success"] is False
+    assert "ZZZZ" in call_kwargs["error"]
+
+
+def test_multiple_tool_calls_in_one_turn_are_each_traced_separately(monkeypatch):
+    mock_record = MagicMock()
+    monkeypatch.setattr("src.agents.chat_service.record_tool_call", mock_record)
+    results = [_factor_score_result("MSFT", 1), _factor_score_result("GOOGL", 1)]
+    monkeypatch.setattr("src.agents.chat_service.call_tool", MagicMock(side_effect=results))
+    client = _client_with_responses(
+        _response(
+            [
+                _tool_use_block("t1", "get_factor_scores", {"ticker": "MSFT"}),
+                _tool_use_block("t2", "get_factor_scores", {"ticker": "GOOGL"}),
+            ]
+        ),
+        _response([_text_block("MSFT edges out GOOGL.")]),
+    )
+
+    answer_question(db=MagicMock(), question="Compare MSFT and GOOGL", client=client, request_id="req-1")
+
+    assert mock_record.call_count == 2
+    tickers_traced = {c.kwargs["tool_input"]["ticker"] for c in mock_record.call_args_list}
+    assert tickers_traced == {"MSFT", "GOOGL"}

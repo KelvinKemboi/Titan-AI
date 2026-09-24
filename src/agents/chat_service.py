@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import time
+import uuid
 from typing import List, Optional
 
 import anthropic
@@ -14,6 +16,7 @@ from src.agents.tools import TOOLS, call_tool
 from src.agents.tools.base import Source
 from src.data.cache import cache_get, cache_set, chat_cache_key
 from src.data.models import ChatMessage, FactorScore
+from src.observability.tracing import record_llm_call, record_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class ChatAnswer(BaseModel):
     sources: List[Source]
 
 # block is a tool_use block from the model's response, and _run_tool executes it against the database.
-def _run_tool(db: Session, block) -> tuple:
+def _run_tool(db: Session, block, request_id: str) -> tuple:
     """
     Executes one tool_use block and returns (tool_result content block, sources).
     Any failure - a ValueError from call_tool (e.g. unknown ticker) or an
@@ -69,10 +72,21 @@ def _run_tool(db: Session, block) -> tuple:
     call failing) - is turned into an `is_error` tool_result instead of
     raising, so the model sees the failure and can respond to the user in
     plain language rather than the request surfacing as a raw 500.
+
+    Every call (success or failure) is traced under `request_id`
+    with its exact input, so a bad answer's
+    grounding data can be traced back to the specific tool call(s) that
+    produced it - a failed call is traced too (success=False, the error
+    message), since "the tool failed and the model should have said so"
+    is itself a debuggable outcome.
     """
     try:
         result = call_tool(db, block.name, block.input) # dispatches to the matching tool implementation (registered in src.agents.tools)
     except Exception as exc: # any tool failure, expected (ValueError) or not
+        record_tool_call(
+            db, request_id=request_id, tool_name=block.name, tool_input=block.input,
+            success=False, error=str(exc),
+        )
         return (
             {
                 "type": "tool_result",
@@ -82,6 +96,10 @@ def _run_tool(db: Session, block) -> tuple:
             },
             [],
         )
+    record_tool_call(
+        db, request_id=request_id, tool_name=block.name, tool_input=block.input,
+        success=True, sources=[s.model_dump(mode="json") for s in result.sources],
+    )
     return (#returns a tuple containing the tool_result content block and the sources for the tool call
         {
             "type": "tool_result",
@@ -93,7 +111,7 @@ def _run_tool(db: Session, block) -> tuple:
 
 
 def answer_question( db: Session, question: str, *, history: Optional[List[ChatMessage]] = None,
-                    client: Optional[anthropic.Anthropic] = None,) -> ChatAnswer:
+                    client: Optional[anthropic.Anthropic] = None, request_id: Optional[str] = None,) -> ChatAnswer:
     """
     Owns a single-turn conversation: sends `question` to the model with the
     factor-score tools, executes any tool calls against `db`, feeds the
@@ -107,7 +125,17 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
     scan changes the key and the old entry is simply never looked up
     again (see chat_cache_key's docstring for why that's simpler than an
     explicit invalidation call).
+
+    `request_id`: the tracing key every LLM/tool
+    call made while answering this question is recorded under - pass the
+    same id the caller will store on this turn's chat_messages row (e.g.
+    src/api/routes/chat.py's post_chat) so a bad answer can be joined
+    straight back to everything that produced it. Generated fresh if
+    omitted, so every existing caller (tests, eval scripts) keeps working
+    unchanged. A cache hit returns before any tracing happens - correctly:
+    nothing new was actually called, so there's nothing to trace.
     """
+    request_id = request_id or str(uuid.uuid4())
     client = client or anthropic.Anthropic() # if no client is provided, create a new instance of the Anthropics API client
 
     cache_key = None
@@ -118,7 +146,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
         if cached is not None:
             return ChatAnswer.model_validate_json(cached)
 
-    intent = classify_intent(question) # classifies the user's question to determine the intent, which may influence how the system prompt is constructed
+    intent = classify_intent(question, db=db, request_id=request_id) # classifies the user's question to determine the intent, which may influence how the system prompt is constructed
     system_prompt = SYSTEM_PROMPT
     if intent in INTENT_HINTS: # if the intent is one of the known intents, append the corresponding hint to the system prompt
         system_prompt = (
@@ -140,6 +168,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
     sources: List[Source] = []
 
     for _ in range(MAX_TOOL_ITERATIONS):
+        start = time.monotonic()
         try: # Call the model with the system prompt, tools, and messages
             response = client.messages.create(
                 model=MODEL,
@@ -150,6 +179,10 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
             )
         except anthropic.APIError:
             return ChatAnswer(response=FALLBACK_RESPONSE, sources=[])
+        record_llm_call(
+            db, request_id=request_id, call_type="chat_generation", model=MODEL,
+            response=response, latency_ms=int((time.monotonic() - start) * 1000),
+        )
 
         tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
         if not tool_use_blocks:
@@ -163,7 +196,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
 
         tool_results = []
         for block in tool_use_blocks:
-            result_block, block_sources = _run_tool(db, block)
+            result_block, block_sources = _run_tool(db, block, request_id)
             tool_results.append(result_block)
             sources.extend(block_sources)
         messages.append({"role": "user", "content": tool_results})

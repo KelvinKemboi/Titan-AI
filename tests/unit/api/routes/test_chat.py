@@ -190,6 +190,40 @@ def test_chat_with_an_unknown_api_key_returns_401(unauthenticated_client):
     assert resp.status_code == 401
 
 
+# request_id (technical-design.md §18): minted once per /chat call and
+# threaded through to both answer_question and the persisted messages,
+# so a bad answer's chat_messages row can be joined to its trace.
+def test_chat_generates_a_request_id_and_threads_it_through(monkeypatch, client):
+    session_uuid = uuid.uuid4()
+    _, _, mock_add_message = _stub_session_lookup(monkeypatch, session_uuid)
+    mock_answer_question = MagicMock(return_value=ChatAnswer(response="hi", sources=[]))
+    monkeypatch.setattr("src.api.routes.chat.answer_question", mock_answer_question)
+
+    resp = client.post("/chat", json={"session_id": str(session_uuid), "message": "hello"})
+
+    assert resp.status_code == 200
+    request_id = mock_answer_question.call_args.kwargs["request_id"]
+    assert uuid.UUID(request_id)  # a real UUID string, not a placeholder
+
+    user_call, assistant_call = mock_add_message.call_args_list
+    assert user_call.kwargs["request_id"] == request_id
+    assert assistant_call.kwargs["request_id"] == request_id
+
+
+def test_chat_uses_a_fresh_request_id_per_call(monkeypatch, client):
+    session_uuid = uuid.uuid4()
+    _stub_session_lookup(monkeypatch, session_uuid)
+    mock_answer_question = MagicMock(return_value=ChatAnswer(response="hi", sources=[]))
+    monkeypatch.setattr("src.api.routes.chat.answer_question", mock_answer_question)
+
+    client.post("/chat", json={"session_id": str(session_uuid), "message": "first"})
+    client.post("/chat", json={"session_id": str(session_uuid), "message": "second"})
+
+    first_id = mock_answer_question.call_args_list[0].kwargs["request_id"]
+    second_id = mock_answer_question.call_args_list[1].kwargs["request_id"]
+    assert first_id != second_id
+
+
 # a valid key resolves to the user_id that ends up owning the session
 def test_chat_with_a_valid_api_key_creates_a_session_owned_by_that_user(unauthenticated_client, db, monkeypatch):
     monkeypatch.setattr(
