@@ -1,13 +1,9 @@
 """
-One-time historical earnings backfill (technical-design.md §15): ingests
-up to MAX_TRAILING_QUARTERS of transcripts per ticker across the full
-S&P 500 universe, so QoQ comparison (#12) and "what changed last
-quarter" chat questions work immediately for tickers that predate
-src/earnings/earnings_scheduler.py's calendar-driven scheduling, instead
-of waiting 1-2 real quarters for that scheduler to accumulate history
-naturally.
-
-Run via scripts/backfill_earnings_transcripts.py.
+One-time historical earnings backfill: ingests up to
+MAX_TRAILING_QUARTERS of transcripts per ticker across the full S&P 500
+universe, so QoQ comparison and "what changed last quarter" chat
+questions work immediately for tickers that predate calendar-driven
+scheduling. Run via scripts/backfill_earnings_transcripts.py.
 """
 import logging
 import time
@@ -27,18 +23,11 @@ from src.earnings.provider_client import (
 
 logger = logging.getLogger(__name__)
 
-# "up to 4 trailing quarters" - acceptance criteria.
 MAX_TRAILING_QUARTERS = 4
 
-# Minimum seconds between provider requests (search_transcripts and every
-# ingest_transcript call alike) - api-ninjas.com's free tier is 100
-# requests/hour (technical-design.md §7); 45s keeps this comfortably
-# under that even with src/earnings/earnings_scheduler.py's own hourly
-# processing tick sharing the same quota concurrently. A full-universe,
-# from-scratch run (worst case 1 search + 4 ingests per ticker, 500
-# tickers) is therefore slow by design - several hours to a day+ - which
-# is the real cost of respecting a free-tier rate limit, not a bug to
-# work around here (see technical-design.md §15's note on the paid tier).
+# Minimum seconds between provider requests - api-ninjas.com's free tier
+# is 100 requests/hour, and 45s keeps this comfortably under that even
+# with the calendar scheduler's own hourly tick sharing the same quota.
 REQUEST_INTERVAL_SECONDS = 45
 
 _last_request_at: Optional[float] = None
@@ -68,18 +57,11 @@ class BackfillOutcome:
 def backfill_ticker(db: Session, ticker: str) -> BackfillOutcome:
     """
     Ingests up to MAX_TRAILING_QUARTERS for `ticker`, most recent first.
-    Raises EarningsProviderAuthError (bad/missing key - a config problem
-    every remaining ticker would hit identically) so the caller can stop
-    the whole run; every other miss is recorded on the returned outcome,
-    never raised.
-
-    status="failed" only when the initial search_transcripts call itself
-    fails - we don't yet know what's available, worth retrying on the
-    next resumed run. status="done" once search_transcripts succeeds and
-    every quarter it found has been attempted, even if some individual
-    quarter didn't ingest (already logged there): re-running search
-    wouldn't surface anything new for those, so retrying provides no
-    value and would just spend the request quota again for nothing.
+    Raises EarningsProviderAuthError so the caller can stop the whole
+    run; every other miss is recorded on the returned outcome, never
+    raised. status="failed" only when the initial search itself fails
+    (worth retrying); status="done" once search succeeds and every
+    quarter found has been attempted, even if some individually missed.
     """
     _throttle()
     try:
@@ -151,20 +133,12 @@ def _record_progress(db: Session, ticker: str, outcome: BackfillOutcome) -> None
 
 def backfill_universe(db: Session, tickers: List[str]) -> dict:
     """
-    Runs backfill_ticker for every ticker in `tickers` not already marked
-    "done" in earnings_backfill_progress, committing after each ticker so
-    a killed/crashed run's completed work is durable - a resumed run
-    (same call, same `tickers`) picks up from the first not-yet-done
-    ticker rather than restarting from the first ticker in the list.
-
-    A ticker with no `companies` row yet (never scanned - see
-    src/analytics/scanner_service.py) is skipped and logged rather than
-    raising, since every earnings table's ticker FK requires one to
-    exist first, same precondition src/earnings/earnings_scheduler.py's
-    discovery already assumes.
-
-    Returns a summary dict: {"total", "skipped_already_done",
-    "skipped_unscanned", "done", "failed", "quarters_ingested"}.
+    Runs backfill_ticker for every ticker not already marked "done" in
+    earnings_backfill_progress, committing after each so a killed run
+    can resume from where it left off. A ticker with no `companies` row
+    yet (never scanned) is skipped and logged, since every earnings
+    table's ticker FK requires one to exist first. Returns a summary
+    dict with per-outcome counts.
     """
     summary = {
         "total": len(tickers), "skipped_already_done": 0, "skipped_unscanned": 0,

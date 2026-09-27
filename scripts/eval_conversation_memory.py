@@ -1,10 +1,9 @@
 """
-Eval harness for conversation memory / entity tracking (technical-design.md
-#4): hand-written multi-turn conversations - ask about a ticker, then a
-pronoun follow-up, then a comparison - run through the real Chat/Agent
-Service (real Postgres persistence between turns, like the /chat route),
-checking each turn's *sources* actually cite the ticker(s) the pronoun was
-meant to resolve to - not just that the response text "sounds right".
+Eval harness for conversation memory / entity tracking: hand-written
+multi-turn conversations - ask about a ticker, then a pronoun follow-up,
+then a comparison - run through the real Chat/Agent Service, checking
+each turn's *sources* actually cite the ticker(s) the pronoun was meant
+to resolve to, not just that the response text "sounds right".
 
 Requires ANTHROPIC_API_KEY and a Postgres with a completed scan that
 includes every ticker below (`streamlit run app.py` -> Initialize Market
@@ -23,8 +22,7 @@ from src.data.db import SessionLocal
 load_dotenv()
 
 # Each conversation: (name, [(question, expected tickers in that turn's sources), ...]).
-# Turn shape is fixed per the acceptance criteria: ticker question -> pronoun
-# follow-up -> comparison.
+# Turn shape: ticker question -> pronoun follow-up -> comparison.
 CONVERSATIONS = [
     (
         "NVDA -> pronoun momentum -> compare to AMD",
@@ -71,7 +69,7 @@ CONVERSATIONS = [
 
 def run_conversation(db, name, turns):
     print(f"\n=== {name} ===")
-    session = get_or_create_session(db, None)
+    session = get_or_create_session(db, None, "eval-conversation-memory")
     db.commit()
 
     all_ok = True

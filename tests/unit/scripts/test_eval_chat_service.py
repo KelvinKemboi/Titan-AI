@@ -279,8 +279,7 @@ def test_main_exits_zero_when_every_case_passes(monkeypatch):
     # no SystemExit at all is also success (falls through main() normally)
 
 
-# the acceptance criterion this whole module exists for: a regressed
-# answer shape must make the process exit non-zero, not just print FAIL
+# a regressed answer shape must make the process exit non-zero, not just print FAIL
 def test_main_exits_nonzero_when_a_case_regresses(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr("scripts.eval_chat_service.SessionLocal", MagicMock(return_value=MagicMock()))

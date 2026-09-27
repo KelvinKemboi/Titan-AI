@@ -20,9 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Enables `vector(N)` columns and similarity search (<->, <#>, <=>
-    # operators) for Phase 2's earnings_chunks table and this milestone's
-    # embedding helper - see docs/architecture.md #4 and #6.
+    # Enables `vector(N)` columns and similarity search (<->, <#>, <=> operators).
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
 

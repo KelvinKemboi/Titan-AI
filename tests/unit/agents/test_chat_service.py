@@ -285,7 +285,7 @@ def test_no_classified_intent_leaves_system_prompt_unmodified(monkeypatch):
 
 
 # a ticker cited in an earlier turn's sources grounds a pronoun follow-up via the
-# system prompt (technical-design.md #4's entity tracking), not just the raw history
+# system prompt's entity tracking, not just the raw history
 def test_entity_from_prior_sourced_turn_adds_a_hint_to_the_system_prompt():
     session_id = "22222222-2222-2222-2222-222222222222"
     history = [
@@ -395,7 +395,7 @@ def test_cache_key_incorporates_the_latest_scan_run_id(monkeypatch):
     mock_cache_get.assert_called_once_with(chat_cache_key("What are the strongest momentum stocks?", 99))
 
 
-# CRITICAL (this cache's own acceptance criteria): a question submitted WITH history 
+# a question submitted WITH history must never touch the cache
 def test_questions_with_history_never_touch_the_cache(monkeypatch):
     mock_cache_get = MagicMock()
     mock_cache_set = MagicMock()
@@ -439,7 +439,7 @@ def test_inconclusive_response_is_not_cached(monkeypatch):
     mock_cache_set.assert_not_called()
 
 
-# --- request tracing (technical-design.md §18) ---
+# --- request tracing ---
 
 def test_answer_question_generates_a_fresh_request_id_when_none_given(monkeypatch):
     mock_classify = MagicMock(return_value=None)
@@ -535,7 +535,7 @@ def test_a_cache_hit_traces_nothing_at_all(monkeypatch):
     mock_record_tool.assert_not_called()
 
 
-# --- tool call tracing (technical-design.md §18) ---
+# --- tool call tracing ---
 
 def test_successful_tool_call_is_traced_with_its_input_and_sources(monkeypatch):
     mock_record = MagicMock()

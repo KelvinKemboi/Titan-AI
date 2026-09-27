@@ -12,7 +12,7 @@ from src.data.models import FactorScore
 
 router = APIRouter()
 
-# Mapping of factor names to their corresponding database columns in the FactorScore model to sort the rankings based on a specific factor's score
+# Maps a factor name to the FactorScore column to sort by.
 _FACTOR_COLUMNS = {
     "value": FactorScore.value_score,
     "momentum": FactorScore.momentum_score,
@@ -22,7 +22,6 @@ _FACTOR_COLUMNS = {
     "composite": FactorScore.composite_score,
 }
 
-# Pydantic model for a ranking item for factor scores and related info for a specific ticker in a scan run
 class RankingItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -37,13 +36,11 @@ class RankingItem(BaseModel):
     volatility_score: Optional[float] = None
     rating: Optional[str] = None
 
-# (De)serializes the cached JSON blob 
 _rankings_adapter = TypeAdapter(List[RankingItem])
 
-# API endpoint to get the latest scan's factor scores, sorted by composite_score in descending order
+
 @router.get("/rankings", response_model=List[RankingItem])
 def get_rankings(
-    # Optional query parameter to specify a factor to sort by instead of composite_score
     factor: Optional[str] = Query(
         default=None,
         description="Sort by this factor's score instead of composite_score: "
@@ -62,17 +59,14 @@ def get_rankings(
             )
         sort_column = _FACTOR_COLUMNS[key]
 
-    # cache hit returns a list of RankingItem objects from Redis
     cache_key = rankings_cache_key(factor)
     cached = cache_get(cache_key)
     if cached is not None:
         return _rankings_adapter.validate_json(cached)
 
-    # Get the latest scan_run_id from the FactorScore table
     latest_scan_run_id = db.query(func.max(FactorScore.scan_run_id)).scalar()
     if latest_scan_run_id is None:
         return []
-    # Query the FactorScore table for all rows with the latest scan_run_id, sorted by the specified factor's score (or composite_score) in descending order, and return the results as a list of RankingItem objects
     items = [
         RankingItem.model_validate(row)
         for row in (

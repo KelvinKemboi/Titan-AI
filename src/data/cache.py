@@ -96,9 +96,9 @@ _CHAT_KEY_PREFIX = "chat:v1"
 def chat_cache_key(question: str, data_version: Optional[int]) -> str:
     """
     FAQ-style /chat response cache key: sha256(normalized question) +
-    data_version (the latest scan_run_id at the time of the request.
-    `data_version` is embedded directly in the key rather than invalidated 
-    via an explicit delete, so a new scan automatically invalidates all previous entries
+    data_version (the latest scan_run_id at request time). Embedding
+    the version directly means a new scan invalidates all previous
+    entries automatically, with no explicit delete needed.
     """
     normalized = question.strip().lower()
     digest = hashlib.sha256(normalized.encode()).hexdigest()[:32]

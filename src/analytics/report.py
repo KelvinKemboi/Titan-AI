@@ -1,7 +1,6 @@
 """
-Automatic Analyst-Style Report: combines a
-ticker's latest factor_scores row with its latest earnings_insights row
-into one memo
+Combines a ticker's latest factor_scores row with its latest
+earnings_insights row into one analyst-style memo.
 """
 from datetime import datetime
 from typing import Any, Optional
@@ -25,7 +24,7 @@ class AnalystReport(BaseModel):
 
 
 def _earnings_insight_dict(insight: Optional[Any]) -> Optional[dict]:
-    """Converts an earnings insight into plain dict RoboAnalyst.generate_memo"""
+    """Converts an earnings insight into the plain dict RoboAnalyst.generate_memo expects."""
     if insight is None:
         return None
     return {
@@ -36,10 +35,8 @@ def _earnings_insight_dict(insight: Optional[Any]) -> Optional[dict]:
 
 
 def generate_report(factor_score: FactorScore, earnings_insight: Optional[Any] = None) -> AnalystReport:
-    """
-    DB-free: reconstructs just enough of a RoboAnalyst from an
-    already-persisted `factor_scores` row to call generate_memo() 
-    """
+    """DB-free: reconstructs just enough of a RoboAnalyst from an
+    already-persisted `factor_scores` row to call generate_memo()."""
     if factor_score.composite_score is None:
         raise ValueError(f"{factor_score.ticker}: composite_score is null")
 

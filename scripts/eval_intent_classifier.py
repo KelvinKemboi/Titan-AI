@@ -61,32 +61,29 @@ def main():
 
     print(f"Running eval on {len(EVAL_SET)} examples against the live API...\n")
     for question, expected in EVAL_SET:
-        t0 = time.monotonic() # start timer
-        predicted = classify_intent(question) # call the real classifier
-        elapsed = time.monotonic() - t0 # stop timer
-        latencies.append(elapsed) # record latency
+        t0 = time.monotonic()
+        predicted = classify_intent(question)
+        elapsed = time.monotonic() - t0
+        latencies.append(elapsed)
 
         ok = predicted == expected
-        correct += ok # increment correct count if prediction matches expected
-        by_intent.setdefault(expected, [0, 0]) # initialize counts for this intent if not already present
-        by_intent[expected][0] += ok # increment correct count
-        by_intent[expected][1] += 1 # increment total count
+        correct += ok
+        by_intent.setdefault(expected, [0, 0])
+        by_intent[expected][0] += ok
+        by_intent[expected][1] += 1
 
         status = "PASS" if ok else "FAIL"
-        print(f"[{status}] {elapsed * 1000:6.0f}ms  expected={expected:<12} got={predicted!s:<12} {question}") # print result
+        print(f"[{status}] {elapsed * 1000:6.0f}ms  expected={expected:<12} got={predicted!s:<12} {question}")
 
-    # Overall accuracy
     accuracy = correct/len(EVAL_SET)
     print(f"\nOverall accuracy: {correct}/{len(EVAL_SET)} ({accuracy:.0%})")
-    # Per-intent accuracy
     for intent, (n_correct, n_total) in by_intent.items():
         print(f"  {intent:<12} {n_correct}/{n_total} ({n_correct / n_total:.0%})")
 
-    # Latency stats
     print(
-        f"\nLatency (ms): avg={statistics.mean(latencies) * 1000:.0f} " # mean latency in milliseconds
-        f"median={statistics.median(latencies) * 1000:.0f} " # median latency in milliseconds
-        f"min={min(latencies) * 1000:.0f} max={max(latencies) * 1000:.0f}" # min/max latency in milliseconds
+        f"\nLatency (ms): avg={statistics.mean(latencies) * 1000:.0f} "
+        f"median={statistics.median(latencies) * 1000:.0f} "
+        f"min={min(latencies) * 1000:.0f} max={max(latencies) * 1000:.0f}"
     )
 
 

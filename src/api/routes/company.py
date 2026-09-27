@@ -13,7 +13,6 @@ from src.data.models import Company, FactorScore
 router = APIRouter()
 
 
-# Pydantic model for the API response
 class CompanyDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,30 +33,25 @@ class CompanyDetail(BaseModel):
     raw_metrics: Optional[Dict[str, Any]] = None
 
 
-
 @router.get("/company/{ticker}", response_model=CompanyDetail)
-# retrieves the company profile and its latest factor scores based on the provided ticker symbol
 def get_company(ticker: str, db: Session = Depends(get_db)):
     """Company profile joined with its latest factor_scores row."""
     ticker = ticker.strip().upper()
 
-    # A cache hit will return a CompanyDetail object from Redis
     cache_key = company_cache_key(ticker)
     cached = cache_get(cache_key)
     if cached is not None:
         return CompanyDetail.model_validate_json(cached)
 
-    company = db.get(Company, ticker) # fetches the company record from the database using the provided ticker symbol
+    company = db.get(Company, ticker)
     if company is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticker '{ticker}'")
-    # fetches the latest factor score by querying the FactorScore table, filtering by the ticker, ordering by the computed_at timestamp in descending order, and retrieving the first result
     latest_score = (
         db.query(FactorScore)
         .filter(FactorScore.ticker == ticker)
         .order_by(FactorScore.computed_at.desc())
         .first()
     )
-    # returns a CompanyDetail object populated with the company profile and its latest factor scores, or None for the score fields if no factor score is found
     detail = CompanyDetail(
         ticker=company.ticker,
         name=company.name,
@@ -81,8 +75,8 @@ def get_company(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/company/{ticker}/report", response_model=AnalystReport)
 def get_company_report(ticker: str, db: Session = Depends(get_db)):
-    """Analyst-style memo: latest factor scores
-    + latest earnings insight, combined by src.analytics.report"""
+    """Analyst-style memo combining the latest factor scores with the
+    latest earnings insight, if any."""
     ticker = ticker.strip().upper()
     if db.get(Company, ticker) is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticker '{ticker}'")

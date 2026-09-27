@@ -45,10 +45,8 @@ def post_chat(request: ChatRequest, db: Session = Depends(get_db), user_id: str 
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     history = get_recent_messages(db, session.id, limit=CHAT_HISTORY_WINDOW)
-    # Minted here (not inside answer_question) so both this turn's chat_messages
-    # rows can be labeled with it, tying "the question asked" and "the answer
-    # given" to the same trace (technical-design.md §18) as every LLM/tool call
-    # answer_question made while producing it.
+    # Minted here so both this turn's chat_messages rows can be labeled
+    # with it, tying question and answer to the same trace.
     request_id = str(uuid.uuid4())
     answer = answer_question(db, request.message, history=history, request_id=request_id)
 

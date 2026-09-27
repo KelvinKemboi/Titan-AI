@@ -36,15 +36,10 @@ GET_ANALYST_REPORT_SCHEMA = {
 def get_analyst_report(db: Session, ticker: str) -> ToolResult:
     """
     Tool implementation backing GET_ANALYST_REPORT_SCHEMA. Raises
-    ValueError (via generate_ticker_report) for a ticker with no
-    factor_scores row - nothing to report on regardless of earnings
-    data.
-
-    Two sources when the memo's "Recent Earnings" section is populated -
-    the underlying factor_scores row AND the earnings_insights row it
-    also draws on - one alone when it isn't, so every claim in the memo
-    still traces to the specific row that backs it (technical-design.md
-    §5), not just whichever source happened to run first.
+    ValueError for a ticker with no factor_scores row. Returns two
+    sources when the memo's "Recent Earnings" section is populated (the
+    factor_scores row and the earnings_insights row it also draws on),
+    one otherwise, so every claim in the memo traces to its own row.
     """
     report = generate_ticker_report(db, ticker)
 

@@ -1,8 +1,7 @@
 """
-GET /earnings/{ticker}: every ingested transcript + its insights for one
-ticker. get_earnings_for_ticker is the core
-retrieval function both this route and
-src/agents/tools/earnings_tools.py's get_earnings_insight tool call
+GET /earnings/{ticker}: every ingested transcript and its insights for
+one ticker. get_earnings_for_ticker is the shared retrieval function
+this route and the get_earnings_insight tool both call.
 """
 from datetime import datetime
 from typing import Any, Dict, List, Optional

@@ -1,9 +1,7 @@
 """
-Earnings calendar source: yfinance's own
-earnings-date calendar - free, already a project dependency (used for
-scoring in titan/analyst.py, so no new API key/cost to add), and
-deliberately a *separate* source from api-ninjas.com (the transcript
-provider, src/earnings/provider_client.py). 
+Earnings calendar source: yfinance's own earnings-date calendar - free
+and already a project dependency, and deliberately a separate source
+from api-ninjas.com, the transcript provider.
 """
 import logging
 from datetime import date
@@ -13,7 +11,8 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# get_earnings_dates walks backward from today 
+# get_earnings_dates walks backward from today; a handful of rows is
+# plenty to find the most recent reported one.
 _EARNINGS_DATES_LOOKBACK = 8
 
 

@@ -1,17 +1,11 @@
 """
-Calendar-driven auto-ingestion scheduler (technical-design.md §14):
-replaces the MVP's on-demand-only ingest_transcript trigger with two
-recurring jobs, tracked in earnings_ingestion_jobs:
-
-  - discover_due_earnings_jobs: once a day, checks every known company's
-    earnings calendar (src/earnings/calendar.py) and opens one job per
-    newly-reported earnings date found within the bounded MAX_WINDOW.
-  - process_due_earnings_jobs: hourly, attempts every job whose
-    next_attempt_at has arrived. A miss (the provider hasn't published
-    the transcript yet, or a transient provider error) backs off
-    exponentially rather than failing the job permanently - it's only
-    ever marked "exhausted" after MAX_ATTEMPTS, or once MAX_WINDOW has
-    passed since the earnings date, whichever comes first.
+Calendar-driven auto-ingestion scheduler: two recurring jobs, tracked in
+earnings_ingestion_jobs. `discover_due_earnings_jobs` (daily) checks
+every known company's earnings calendar and opens one job per newly-
+reported earnings date. `process_due_earnings_jobs` (hourly) attempts
+every due job, backing off exponentially on a miss rather than failing
+permanently, until it's marked "exhausted" after enough attempts or too
+much time elapsed.
 
 Standalone process:
     python -m src.earnings.earnings_scheduler
@@ -40,8 +34,7 @@ logger = logging.getLogger(__name__)
 DISCOVERY_INTERVAL_SECONDS = 24 * 3600
 PROCESSING_INTERVAL_SECONDS = 3600
 
-# How long after a reported earnings date this system keeps trying before
-# giving up on that quarter 
+# How long after a reported earnings date this system keeps trying before giving up on that quarter.
 MAX_WINDOW = timedelta(days=21)
 
 # Exponential backoff between attempts once a job is discovered:
@@ -61,11 +54,8 @@ def discover_due_earnings_jobs(db: Session) -> int:
     Opens one earnings_ingestion_jobs row per (ticker, earnings_date)
     reporting event this system hasn't already seen, for every company
     with a reported earnings date within MAX_WINDOW. Returns the number
-    of new jobs opened.
-
-    Idempotent across repeated runs: the table's own (ticker,
-    earnings_date) unique index turns a re-discovered event into a
-    no-op, not a duplicate/crash - safe to run this daily indefinitely.
+    of new jobs opened. Idempotent - the table's unique index turns a
+    re-discovered event into a no-op, not a duplicate.
     """
     now = datetime.now(timezone.utc)
     cutoff = (now - MAX_WINDOW).date()
@@ -124,13 +114,10 @@ def _reschedule(job: EarningsIngestionJob, now: datetime, *, error: str) -> None
 def _process_one_job(db: Session, job: EarningsIngestionJob, now: datetime) -> None:
     """
     Resolves `job`'s reporting event to a (fiscal_year, fiscal_quarter)
-    via the provider's own transcript listing (search_transcripts) - the
-    calendar source only gives a date, not a fiscal-period label - then
-    delegates the actual fetch+persist+downstream-extraction to the
-    existing ingest_transcript (idempotent, same as every other ingestion
-    path). Raises EarningsProviderAuthError so the caller can stop the
-    whole run rather than burn through every remaining job with the same
-    bad key; every other miss is recorded via _reschedule, not raised.
+    via the provider's own transcript listing, since the calendar source
+    only gives a date, then delegates to the existing ingest_transcript.
+    Raises EarningsProviderAuthError so the caller can stop the whole
+    run; every other miss is recorded via _reschedule, not raised.
     """
     try:
         results = list(search_transcripts(job.ticker))
@@ -175,12 +162,10 @@ def _process_one_job(db: Session, job: EarningsIngestionJob, now: datetime) -> N
 def process_due_earnings_jobs(db: Session) -> None:
     """
     Attempts every pending earnings_ingestion_jobs row whose
-    next_attempt_at has arrived. Each job is committed independently so
-    one job's outcome (success, backoff, or exhaustion) is durable before
-    moving to the next, and an EarningsProviderAuthError (bad/missing
-    key - a config problem, not a per-ticker coverage gap) stops the
-    whole run instead of being swallowed per job, same convention
-    ingest_transcript itself already uses.
+    next_attempt_at has arrived, committing each job's outcome
+    independently. An EarningsProviderAuthError stops the whole run
+    rather than being swallowed per job, since a bad key affects every
+    remaining job identically.
     """
     now = datetime.now(timezone.utc)
     due_jobs = (

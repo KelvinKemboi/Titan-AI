@@ -35,8 +35,8 @@ class RoboAnalyst:
 
             # A. Technical Factors
             current_price = close.iloc[-1]
-            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1] # relative strength index - for measuring the speed and change of price movements, used to identify overbought or oversold conditions
-            macd = ta.trend.MACD(close).macd_diff().iloc[-1] # moving average convergence divergence(used to spot price trends, measure market momentum, and find buy or sell signals)
+            rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1] # momentum indicator, flags overbought/oversold conditions
+            macd = ta.trend.MACD(close).macd_diff().iloc[-1] # trend/momentum indicator for buy/sell signals
             sma_200 = close.rolling(window=200).mean().iloc[-1] # 200-day simple moving average
             trend = "Bullish" if current_price > sma_200 else "Bearish"
 
@@ -64,8 +64,7 @@ class RoboAnalyst:
             # Value: PEG < 1.0 is elite (100). PEG > 3.0 is poor (0).
             val_score = max(0, min(100, (3.0 - val_metric) * 50))
 
-            # Momentum(speed and strength of the trend): We want RSI 50-70.
-            # Penalize if Overbought (>75) or Oversold (<30)
+            # Momentum: targets RSI 40-75, penalized outside that range.
             if 40 <= rsi <= 75:
                 mom_score = 100
             else:
@@ -111,11 +110,9 @@ class RoboAnalyst:
             return False
 
     def generate_memo(self, earnings_insight=None):
-        """Generates the Wall Street style write-up.
-        `earnings_insight`: an optional plain
-        dict with `summary`/`guidance_direction`/`risks` keys, as returned by
-        src.analytics.report._earnings_insight_dict()
-        """
+        """Generates the Wall Street style write-up. `earnings_insight`
+        is an optional dict with `summary`/`guidance_direction`/`risks`
+        keys, added as a "Recent Earnings" section when given."""
         m = self.metrics
         s = self.score
 

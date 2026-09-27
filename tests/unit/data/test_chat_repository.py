@@ -112,7 +112,7 @@ def test_add_message_defaults_to_no_sources():
     assert message.sources == []
 
 
-# request_id (technical-design.md §18) ties this turn to its llm_calls/tool_calls trace
+# request_id ties this turn to its llm_calls/tool_calls trace
 def test_add_message_persists_the_request_id():
     db = MagicMock()
     session_uuid = uuid.uuid4()

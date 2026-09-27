@@ -62,15 +62,11 @@ def _group_into_sections(texts: List[str], max_chars: int) -> List[str]:
 
 def summarize_transcript(raw_text: str, *, client: Optional[anthropic.Anthropic] = None) -> Optional[str]:
     """
-    Summarizes `raw_text`'s prepared-remarks chunks (chunk_transcript)
-    Returns None for a transcript with no prepared-remarks chunks at
-    all (e.g. blank raw_text), without calling the model.
-
-    Chunk-then-reduce: if the concatenated prepared-remarks text fits
-    within MAX_SUMMARIZATION_INPUT_CHARS, one call summarizes it directly.
-    Otherwise it's grouped into sections, each section is summarized on
-    its own (the "map" step), and a final call combines those section
-    summaries into one summary (the "reduce" step)
+    Summarizes `raw_text`'s prepared-remarks chunks. Returns None
+    without calling the model if there are no such chunks. Chunk-then-
+    reduce: text within MAX_SUMMARIZATION_INPUT_CHARS is summarized in
+    one call; longer text is grouped into sections, each summarized on
+    its own, then combined by a final call.
     """
     client = client or anthropic.Anthropic()
     prepared_texts = [c.chunk_text for c in chunk_transcript(raw_text) if c.chunk_type == "prepared_remarks"]
@@ -89,11 +85,8 @@ def summarize_transcript(raw_text: str, *, client: Optional[anthropic.Anthropic]
 def generate_summary(
     db: Session, transcript_id: int, raw_text: str, *, client: Optional[anthropic.Anthropic] = None,
 ) -> Optional[EarningsInsight]:
-    """
-    Generates and persists `transcript_id`'s earnings_insights.summary.
-    Upserts on the table's own unique index (transcript_id) so a later
-    extraction pass (guidance/sentiment/risk) can update the summary without overwriting it
-    """
+    """Generates and persists `transcript_id`'s summary, upserting on the
+    table's transcript_id index."""
     try:
         summary = summarize_transcript(raw_text, client=client)
     except Exception:

@@ -1,6 +1,7 @@
 """
-Intent classification: model call that classifies each incoming chat message before the Chat/Agent
-Service (chat_service.py) decides which tools to foreground
+Intent classification: a cheap model call that classifies each incoming
+chat message before the Chat/Agent Service decides which tools to
+foreground.
 """
 import time
 from typing import Literal, Optional
@@ -45,7 +46,7 @@ _CLASSIFY_INTENT_TOOL = {
     },
 }
 
-# Injected into chat_service's system prompt as a routing hint
+# Injected into chat_service's system prompt as a routing hint.
 INTENT_HINTS = {
     "structured": (
         "This question looks like it's about one named ticker's own factor scores - "
@@ -70,19 +71,15 @@ def classify_intent(
     request_id: Optional[str] = None,
 ) -> Optional[Intent]:
     """
-    Classifies `question` into one of Intent's three values via one forced
-    tool-call to CLASSIFIER_MODEL. `tool_choice` forces the model to call
-    classify_intent (rather than reply with text), and the tool schema's
-    `enum` constrains `intent` to exactly one of the three values
-
-    `db`/`request_id` are optional tracing hooks (technical-design.md §18)
-    - omitted, this call simply isn't traced, so every existing caller
-    (eval scripts, direct tests) keeps working unchanged.
+    Classifies `question` into one of Intent's three values via a forced
+    tool call, so the model returns a value constrained by the tool
+    schema's enum rather than free text. `db`/`request_id` are optional
+    tracing hooks - omit them and the call simply isn't traced, so
+    existing callers keep working unchanged.
     """
     client = client or anthropic.Anthropic()
     start = time.monotonic()
     try:
-        # Call the model with a system prompt that instructs it to classify the question into one of the three intents
         response = client.messages.create(
             model=CLASSIFIER_MODEL,
             max_tokens=CLASSIFIER_MAX_TOKENS,
@@ -101,7 +98,7 @@ def classify_intent(
             model=CLASSIFIER_MODEL, response=response, latency_ms=latency_ms,
         )
 
-    tool_use_block = next((b for b in response.content if b.type == "tool_use"), None) # find the tool_use block in the model's response, if any
+    tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
     if tool_use_block is None:
         return None
 

@@ -1,7 +1,6 @@
 """
-Semantic search over memo_embeddings - Titan's first qualitative
-retrieval source (docs/architecture.md #6). Backs the search_memos tool
-(src/agents/tools/memo_tools.py).
+Semantic search over memo_embeddings, the qualitative retrieval source
+behind the search_memos tool.
 """
 from datetime import datetime
 from typing import List, Optional

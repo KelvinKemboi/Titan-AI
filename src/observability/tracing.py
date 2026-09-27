@@ -1,23 +1,14 @@
 """
-LLM/tool call tracing: the Chat/Agent Service
-calls multiple models (intent classifier, main generation) across
-multiple tools per turn - this module is the single place that persists
-what each of those calls actually did, so a bad answer or a cost spike
-is debuggable after the fact instead of only visible in transient logs.
+LLM/tool call tracing: the Chat/Agent Service calls multiple models
+across multiple tools per turn, and this module is the single place
+that persists what each call actually did. Every call recorded here
+shares a `request_id` - the same id stored on that turn's chat_messages
+row - so a bad answer or a cost spike can be traced back to exactly
+what was asked, what each tool returned, and what each model call cost.
 
-Every call recorded here shares a `request_id` - a fresh UUID minted
-once per `answer_question()` invocation (src/agents/chat_service.py) -
-which is also stored on that turn's `chat_messages` row. That's the
-join: given a bad answer, `chat_messages.request_id` -> every LLMCall
-and ToolCall row sharing it is the complete "what did we ask, what did
-each tool return, what did each model call cost" trace for that turn.
-
-Recording never raises: a tracing failure (a session that hasn't
-committed the new tables' migration yet, a locked table, etc.) must not
-break the actual chat response it's trying to observe. Logged and
-swallowed, matching this codebase's established "an ancillary write
-must not fail the primary operation" convention (e.g.
-src/analytics/memo_indexing.py's embedding-failure handling).
+Recording never raises: a tracing failure must not break the actual
+chat response it's observing, so every write here is logged and
+swallowed rather than propagated.
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -29,13 +20,8 @@ from src.data.models import LLMCall, ToolCall
 logger = logging.getLogger(__name__)
 
 # USD per 1M tokens (input, output) - Anthropic's current first-party
-# pricing (per the claude-api skill, cached 2026-06-24). Best-effort
-# figures for cost-TREND visibility (a spike is a spike regardless of a
-# few percent of pricing drift), not a billing-accurate ledger - confirm
-# against Anthropic's pricing page before treating this as authoritative.
-# claude-haiku-4-5-20251001 is this codebase's dated snapshot of the
-# undated claude-haiku-4-5 the current pricing table lists - priced the
-# same; re-check if that snapshot is ever repriced independently of it.
+# pricing. Best-effort for cost-trend visibility, not a billing-accurate
+# ledger; confirm against Anthropic's pricing page before relying on it.
 MODEL_PRICING_PER_MILLION_TOKENS: Dict[str, Dict[str, float]] = {
     "claude-sonnet-5": {"input": 2.00, "output": 10.00},
     "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
@@ -43,12 +29,9 @@ MODEL_PRICING_PER_MILLION_TOKENS: Dict[str, Dict[str, float]] = {
 
 
 def estimate_cost_usd(model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> Optional[float]:
-    """
-    Estimated USD cost for one call, or None if `model` isn't in
-    MODEL_PRICING_PER_MILLION_TOKENS or either token count is unknown -
-    None (not 0.0) so "unpriced" is never silently indistinguishable
-    from "free" in an aggregate sum.
-    """
+    """Estimated USD cost for one call. Returns None (not 0.0) if `model`
+    is unpriced or either token count is unknown, so "unpriced" is never
+    silently indistinguishable from "free" in an aggregate sum."""
     pricing = MODEL_PRICING_PER_MILLION_TOKENS.get(model)
     if pricing is None or input_tokens is None or output_tokens is None:
         return None
@@ -66,13 +49,9 @@ def record_llm_call(
 ) -> None:
     """
     Persists one LLMCall row from a completed `client.messages.create`
-    `response`. `db` is Optional so every call site (including ones that
-    don't have a DB session in scope, e.g. classify_intent's direct
-    callers/tests/eval scripts) can opt out of tracing by simply passing
-    None, rather than every caller needing its own if-tracing-enabled
-    branch. Token counts default to None (not persisted as 0) if
-    `response` has no `.usage` - a mocked test response, or a future SDK
-    response shape this hasn't been updated for.
+    response. `db` is optional so a caller with no DB session in scope
+    can opt out of tracing by passing None. Token counts default to
+    None if `response` has no `.usage`, rather than being recorded as 0.
     """
     if db is None:
         return
@@ -105,10 +84,8 @@ def record_tool_call(
     error: Optional[str] = None,
     sources: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
-    """Persists one ToolCall row - the per-call input/output granularity
-    behind "trace a bad answer back to which tool call(s) produced the
-    incorrect grounding data" (independent of whatever the final
-    aggregated ChatAnswer.sources ends up containing)."""
+    """Persists one ToolCall row: this call's own input and sources,
+    independent of whatever the final aggregated answer ends up citing."""
     if db is None:
         return
 

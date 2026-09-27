@@ -53,18 +53,17 @@ COMPARE_TICKERS_SCHEMA = {
 
 TOOLS = [GET_FACTOR_SCORES_SCHEMA, COMPARE_TICKERS_SCHEMA]
 
-# scan_run_as_of returns the completed_at timestamp of the ScanRun with the given scan_run_id, or the started_at timestamp if completed_at is None
 def _scan_run_as_of(db: Session, scan_run_id: int):
+    """The ScanRun's completed_at, or started_at if it hasn't completed."""
     scan_run = db.get(ScanRun, scan_run_id)
     if scan_run is None:
         return None
     return scan_run.completed_at or scan_run.started_at
 
-# factor_scores_tool_result returns a ToolResult object containing the explanation of the factor scores for a given ticker, along with the source information including the scan_run_id and the as_of timestamp
 def get_factor_scores(db: Session, ticker: str) -> ToolResult:
-    """Tool implementation backing GET_FACTOR_SCORES_SCHEMA (#9's Explanation Engine)."""
+    """Tool implementation backing GET_FACTOR_SCORES_SCHEMA."""
     explanation = explain_ticker(db, ticker)
-    as_of = _scan_run_as_of(db, explanation.scan_run_id) # retrieves the as_of timestamp for the scan_run_id associated with the explanation
+    as_of = _scan_run_as_of(db, explanation.scan_run_id)
     return ToolResult(
         data=explanation.model_dump(mode="json"),
         sources=[
@@ -82,13 +81,9 @@ def get_factor_scores(db: Session, ticker: str) -> ToolResult:
         ],
     )
 
-# compare_tickers_tool_result returns a ToolResult object containing the comparison of factor scores for a list of tickers, along with the source information for each ticker including the scan_run_id and the as_of timestamp
 def compare_tickers(db: Session, tickers: List[str]) -> ToolResult:
     """Tool implementation backing COMPARE_TICKERS_SCHEMA."""
-    # Dedupe (mirroring src/api/routes/compare.py's get_compare route): without
-    # this, ["MSFT", "msft"] normalizes to two identical entries, which passes
-    # _compare_tickers' "at least 2 found" check as a degenerate "MSFT vs MSFT"
-    # comparison (every delta 0) instead of the intended distinct-ticker error.
+    # Dedupe first, or ["MSFT", "msft"] normalizes to a degenerate "MSFT vs MSFT" comparison.
     seen = set()
     deduped = []
     for t in tickers:

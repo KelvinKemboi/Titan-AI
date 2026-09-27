@@ -190,9 +190,9 @@ def test_chat_with_an_unknown_api_key_returns_401(unauthenticated_client):
     assert resp.status_code == 401
 
 
-# request_id (technical-design.md §18): minted once per /chat call and
-# threaded through to both answer_question and the persisted messages,
-# so a bad answer's chat_messages row can be joined to its trace.
+# request_id: minted once per /chat call and threaded through to both
+# answer_question and the persisted messages, so a bad answer's
+# chat_messages row can be joined to its trace.
 def test_chat_generates_a_request_id_and_threads_it_through(monkeypatch, client):
     session_uuid = uuid.uuid4()
     _, _, mock_add_message = _stub_session_lookup(monkeypatch, session_uuid)

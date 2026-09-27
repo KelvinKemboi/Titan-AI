@@ -1,17 +1,9 @@
 """
-Queryable LLM spend + request tracing over the
-llm_calls/tool_calls rows src/observability/tracing.py persists:
-
-- get_aggregate_spend / get_session_spend / get_top_sessions_by_spend:
-  "per-session and aggregate LLM spend is queryable" (acceptance
-  criterion) - a session's spend is derived via chat_messages.request_id
-  -> llm_calls.request_id, not a session_id column duplicated onto every
-  trace row (llm_calls/tool_calls have no session_id of their own - see
-  src/data/models.py's LLMCall/ToolCall docstrings).
-- get_request_trace: "a sample bad answer can be traced back to which
-  tool call(s) produced the incorrect grounding data" (acceptance
-  criterion) - every LLM call and tool call (success or failure, with
-  its exact input) made while answering one /chat request, in order.
+Queryable LLM spend and request tracing over the llm_calls/tool_calls
+rows src/observability/tracing.py persists. Session-level spend is
+derived via chat_messages.request_id -> llm_calls.request_id rather
+than a session_id duplicated onto every trace row, since llm_calls and
+tool_calls have no session_id of their own.
 """
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -99,9 +91,8 @@ def _summarize(rows: List[LLMCall]) -> SpendSummary:
 
 
 def get_aggregate_spend(db: Session, *, since: Optional[datetime] = None) -> SpendSummary:
-    """Spend across every traced LLM call, optionally restricted to calls
-    made at or after `since` - the "aggregate LLM spend" acceptance
-    criterion."""
+    """Spend across every traced LLM call, optionally restricted to
+    calls made at or after `since`."""
     query = db.query(LLMCall)
     if since is not None:
         query = query.filter(LLMCall.created_at >= since)
@@ -110,10 +101,8 @@ def get_aggregate_spend(db: Session, *, since: Optional[datetime] = None) -> Spe
 
 def get_session_spend(db: Session, session_id: UUID) -> SpendSummary:
     """Spend across every traced LLM call made while answering any
-    question in `session_id` - the "per-session LLM spend" acceptance
-    criterion. A session with no traced calls (nothing asked yet, or
-    every turn was a cache hit) returns an all-zero SpendSummary, not an
-    error."""
+    question in `session_id`. A session with no traced calls returns an
+    all-zero SpendSummary, not an error."""
     request_ids = [
         row[0] for row in
         db.query(ChatMessage.request_id)
@@ -129,13 +118,10 @@ def get_session_spend(db: Session, session_id: UUID) -> SpendSummary:
 
 def get_top_sessions_by_spend(db: Session, limit: int = 10) -> List[Dict[str, Any]]:
     """The `limit` sessions with the highest total traced LLM cost,
-    highest first - the "simple dashboard/report" acceptance criterion's
-    most actionable single view (which sessions are actually driving
-    spend). Joins llm_calls against a *distinct* (request_id, session_id)
-    subquery, not the raw chat_messages table directly - one /chat turn
-    always writes 2 chat_messages rows (user + assistant) sharing the
-    same request_id, so joining straight to chat_messages would fan each
-    llm_calls row out across both and double-count every sum here."""
+    highest first. Joins llm_calls against a *distinct*
+    (request_id, session_id) subquery rather than the raw chat_messages
+    table, since one turn writes 2 chat_messages rows (user + assistant)
+    sharing a request_id, and joining directly would double-count."""
     request_sessions = (
         db.query(ChatMessage.request_id, ChatMessage.session_id)
         .filter(ChatMessage.request_id.isnot(None))
@@ -170,10 +156,8 @@ def get_top_sessions_by_spend(db: Session, limit: int = 10) -> List[Dict[str, An
 
 def get_request_trace(db: Session, request_id: str) -> RequestTrace:
     """Every LLM call and tool call made while answering one /chat
-    request, oldest first - "trace a bad answer back to which tool
-    call(s) produced the incorrect grounding data." An unknown/never-
-    traced `request_id` returns empty lists, not an error - the caller
-    (e.g. an API route) decides whether that's a 404."""
+    request, oldest first. An unknown request_id returns empty lists,
+    not an error - the caller decides whether that's a 404."""
     llm_calls = (
         db.query(LLMCall).filter(LLMCall.request_id == request_id).order_by(LLMCall.created_at).all()
     )

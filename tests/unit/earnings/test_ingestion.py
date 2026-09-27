@@ -150,7 +150,7 @@ def test_losing_the_insert_race_does_not_re_trigger_chunk_indexing(monkeypatch, 
     _no_chunk_indexing.assert_not_called()
 
 
-# wiring: a freshly-inserted transcript's summary gets generated (technical-design.md §8)
+# wiring: a freshly-inserted transcript's summary gets generated
 def test_a_fresh_insert_triggers_summary_generation(monkeypatch, _no_summary_generation):
     monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
     db = _db_with_no_existing_row()
@@ -184,7 +184,7 @@ def test_losing_the_insert_race_does_not_re_trigger_summary_generation(monkeypat
     _no_summary_generation.assert_not_called()
 
 
-# wiring: a freshly-inserted transcript's guidance gets extracted (technical-design.md §9)
+# wiring: a freshly-inserted transcript's guidance gets extracted
 def test_a_fresh_insert_triggers_guidance_generation(monkeypatch, _no_guidance_generation):
     monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
     db = _db_with_no_existing_row()
@@ -218,7 +218,7 @@ def test_losing_the_insert_race_does_not_re_trigger_guidance_generation(monkeypa
     _no_guidance_generation.assert_not_called()
 
 
-# wiring: a freshly-inserted transcript's sentiment gets scored (technical-design.md §10)
+# wiring: a freshly-inserted transcript's sentiment gets scored
 def test_a_fresh_insert_triggers_sentiment_generation(monkeypatch, _no_sentiment_generation):
     monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
     db = _db_with_no_existing_row()
@@ -252,7 +252,7 @@ def test_losing_the_insert_race_does_not_re_trigger_sentiment_generation(monkeyp
     _no_sentiment_generation.assert_not_called()
 
 
-# a freshly-inserted transcript's risks get extracted (technical-design.md §11)
+# a freshly-inserted transcript's risks get extracted
 def test_a_fresh_insert_triggers_risk_generation(monkeypatch, _no_risk_generation):
     monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
     db = _db_with_no_existing_row()
@@ -286,7 +286,7 @@ def test_losing_the_insert_race_does_not_re_trigger_risk_generation(monkeypatch,
     _no_risk_generation.assert_not_called()
 
 
-# wiring: a freshly-inserted transcript's QoQ diff gets computed (technical-design.md §12)
+# wiring: a freshly-inserted transcript's QoQ diff gets computed
 def test_a_fresh_insert_triggers_qoq_generation(monkeypatch, _no_qoq_generation):
     monkeypatch.setattr("src.earnings.ingestion.get_transcript", MagicMock(return_value=_transcript()))
     db = _db_with_no_existing_row()

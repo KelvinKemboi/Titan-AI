@@ -1,9 +1,8 @@
 """
-Manual test: exercise conversation memory against the postgres database
- and the live Anthropic API. Ask about NVDA, then ask a follow-up
-that only makes sense with that context, and
-confirm the second answer resolves "its" to NVDA via the persisted last-K
-window instead of the user having to restate the ticker.
+Manual test: exercise conversation memory against Postgres and the
+live Anthropic API. Ask about NVDA, then a follow-up that only makes
+sense with that context, and confirm the second answer resolves "its"
+to NVDA via the persisted last-K window.
 
 Requires ANTHROPIC_API_KEY and a Postgres with at least one completed scan
 that includes NVDA (`streamlit run app.py` -> Initialize Market Scan, or
@@ -33,7 +32,7 @@ def _turn(db, session, message):
 def main():
     db = SessionLocal()
     try:
-        session = get_or_create_session(db, None)
+        session = get_or_create_session(db, None, "manual-test-chat-memory")
         db.commit()
         print(f"session: {session.id}\n")
 

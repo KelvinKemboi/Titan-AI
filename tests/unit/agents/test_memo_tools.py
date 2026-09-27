@@ -14,8 +14,7 @@ def _hit(ticker, scan_run_id, memo_text="a memo", as_of=None):
     )
 
 
-# every memo hit becomes a `type="memo"` Source citing its ticker + scan_run_id,
-# per the source-attribution contract (docs/technical-design.md #5)
+# every memo hit becomes a `type="memo"` Source citing its ticker + scan_run_id
 def test_search_memos_returns_sourced_results(monkeypatch):
     hits = [_hit("AAPL", 142), _hit("MSFT", 142)]
     monkeypatch.setattr("src.agents.tools.memo_tools._search_memos", MagicMock(return_value=hits))

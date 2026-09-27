@@ -1,10 +1,9 @@
 """
-One-time historical earnings backfill: ingests
-up to 4 trailing quarters of transcripts per ticker across the full
-S&P 500 universe (titan/data.py's get_sp500_tickers), so QoQ comparison
-(#12) and "what changed last quarter" chat questions work immediately
-for the existing universe rather than only going forward from
-src/earnings/earnings_scheduler.py's calendar-driven scheduling.
+One-time historical earnings backfill: ingests up to 4 trailing
+quarters of transcripts per ticker across the full S&P 500 universe, so
+QoQ comparison and "what changed last quarter" chat questions work
+immediately for the existing universe rather than only going forward
+from the calendar-driven scheduler.
 
 Throttled to respect api-ninjas.com's free-tier rate limit (one request
 every 45s - src/earnings/backfill.py's REQUEST_INTERVAL_SECONDS) - a

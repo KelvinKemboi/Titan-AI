@@ -1,11 +1,7 @@
 """
-GET /observability/spend, /observability/spend/{session_id},
-/observability/trace/{request_id}: the "queryable" half of
-technical-design.md §18's LLM tracing/spend acceptance criteria, backed
-by src/observability/spend.py. Gated behind the same auth as /chat
-(src/api/auth.py's MVP API-key scheme) since spend/trace data is
-internal - there's no separate admin role in this system yet to gate it
-more narrowly.
+LLM spend and request-tracing endpoints, backed by
+src/observability/spend.py. Gated behind the same auth as /chat, since
+there's no separate admin role in this system yet.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -68,10 +64,8 @@ def get_request_trace_route(
     request_id: str, db: Session = Depends(get_db), _user_id: str = Depends(get_current_user),
 ):
     """Every LLM call and tool call made while answering one /chat
-    request - "trace a bad answer back to which tool call(s) produced
-    the incorrect grounding data." 404 when nothing was ever traced
-    under this request_id (unknown id, or a request that predates this
-    feature)."""
+    request, so a bad answer can be traced back to what produced it.
+    404 when nothing was ever traced under this request_id."""
     trace = get_request_trace(db, request_id)
     if not trace.llm_calls and not trace.tool_calls:
         raise HTTPException(status_code=404, detail=f"No trace found for request_id '{request_id}'")

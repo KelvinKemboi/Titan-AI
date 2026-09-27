@@ -80,7 +80,7 @@ def test_intent_hints_cover_every_intent():
     assert set(INTENT_HINTS.keys()) == set(INTENTS)
 
 
-# --- tracing (technical-design.md §18) ---
+# --- tracing ---
 
 def test_classify_intent_traces_the_call_when_db_and_request_id_are_given(monkeypatch):
     usage = SimpleNamespace(input_tokens=12, output_tokens=3)

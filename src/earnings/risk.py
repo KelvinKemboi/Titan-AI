@@ -1,6 +1,6 @@
 """
-Risk Extraction: pulls out the risks management
-discussed during THIS call, each with a supporting quote 
+Risk extraction: pulls out the risks management discussed during this
+call, each with a supporting quote.
 """
 import logging
 from typing import Dict, List, Optional
@@ -77,12 +77,9 @@ _EXTRACT_RISKS_TOOL = {
 
 
 def extract_risks(raw_text: str, *, client: Optional[anthropic.Anthropic] = None) -> List[Dict[str, str]]:
-    """
-    Extracts the risks management discussed in `raw_text` (prepared
-    remarks and Q&A chunks alike), returning a list of {"risk": ...,
-    "quote": ...} dicts - [] if none were discussed, or if nothing in the
-    transcript mentions risk-related language at all 
-    """
+    """Extracts the risks management discussed in `raw_text`, returning a
+    list of {"risk": ..., "quote": ...} dicts - [] if none were
+    discussed, or nothing mentions risk-related language at all."""
     relevant_texts = [c.chunk_text for c in chunk_transcript(raw_text) if _mentions_risk(c.chunk_text)]
     if not relevant_texts:
         return []
@@ -115,11 +112,8 @@ def extract_risks(raw_text: str, *, client: Optional[anthropic.Anthropic] = None
 def generate_risks(
     db: Session, transcript_id: int, raw_text: str, *, client: Optional[anthropic.Anthropic] = None,
 ) -> Optional[EarningsInsight]:
-    """
-    Extracts and persists `transcript_id`'s earnings_insights.risks.
-    Upserts on the table's own unique index (transcript_id), same
-    convention as generate_summary/generate_guidance/generate_sentiment
-    """
+    """Extracts and persists `transcript_id`'s risks, upserting on the
+    table's transcript_id index."""
     try:
         risks = extract_risks(raw_text, client=client)
     except Exception:

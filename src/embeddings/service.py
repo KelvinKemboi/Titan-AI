@@ -12,8 +12,7 @@ EMBEDDING_DIMENSION = 1536
 # split into multiple calls.
 _BATCH_SIZE = voyageai.VOYAGE_EMBED_BATCH_SIZE
 
-# Retries (exponential backoff with jitter) on rate limits/timeouts/transient
-# 5xxs are handled by voyageai.Client itself 
+# Retries (exponential backoff with jitter) on rate limits/timeouts/transient 5xxs, handled by voyageai.Client itself.
 _MAX_RETRIES = 5
 
 

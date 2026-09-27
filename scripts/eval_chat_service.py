@@ -1,10 +1,8 @@
 """
-CI-gating eval harness for the Chat/Agent Service: formalizes the ad-hoc "manual test" acceptance criteria scattered
-across prior issues (see scripts/manual_test_tool_calling.py,
-scripts/manual_test_phase2_questions.py, scripts/eval_conversation_memory.py)
-into one repeatable eval set, run against the real `answer_question()` -
-the same function `/chat` calls in production, not a re-implementation of
-its tool-calling loop.
+CI-gating eval harness for the Chat/Agent Service: formalizes the
+ad-hoc manual test scripts into one repeatable eval set, run against
+the real `answer_question()` - the same function `/chat` calls in
+production, not a re-implementation of its tool-calling loop.
 """
 import os
 import sys
@@ -45,9 +43,8 @@ def cites_ticker(ticker: str, *, source_type: Optional[str] = None) -> Check:
 
 
 def cites_tickers_from_the_same_scan(*tickers: str) -> Check:
-    """The acceptance criterion's own example: N tickers' factor_score
-    sources must all carry the same ref_id (scan_run_id) - a comparison
-    pinned to one scan, not stale-vs-fresh."""
+    """N tickers' factor_score sources must all carry the same ref_id
+    (scan_run_id) - a comparison pinned to one scan, not stale-vs-fresh."""
     def check(answer: ChatAnswer) -> Optional[str]:
         by_ticker = {
             t: {s.ref_id for s in answer.sources if s.ticker == t and s.type == "factor_score"}
@@ -261,16 +258,10 @@ class EvalResult:
 
 
 def evaluate_case(case: EvalCase, ask: Callable[[str], ChatAnswer]) -> EvalResult:
-    """Runs one case's question through `ask` and applies its check.
-    A crash while asking (e.g. an unexpected exception, as opposed to
-    answer_question's own graceful anthropic.APIError -> FALLBACK_RESPONSE
-    handling) is recorded as a failure with the exception as the reason,
-    not re-raised - one case's crash must not abort the whole run and
-    hide every other case's result.
-
-    A case with an unmet `requires_env` is skipped (not failed) - it
-    doesn't count against the pass/fail gate, distinct from a real
-    regression."""
+    """Runs one case's question through `ask` and applies its check. A
+    crash while asking is recorded as a failure rather than re-raised,
+    so it doesn't hide every other case's result. A case with an unmet
+    `requires_env` is skipped instead, since that's not a regression."""
     missing_env = [var for var in case.requires_env if not os.environ.get(var)]
     if missing_env:
         return EvalResult(

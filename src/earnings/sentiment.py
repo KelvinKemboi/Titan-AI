@@ -1,14 +1,10 @@
 """
-Sentiment Analysis (technical-design.md §10): rubric-based LLM scoring of
-management's tone during the Q&A portion of an earnings call - not a
-generic sentiment classifier, since financial tone != general sentiment
-("we're seeing headwinds" reads negative with no negative-sounding words).
-Runs at ingestion time, wired into src/earnings/ingestion.py:ingest_transcript
-right after guidance extraction.
-
-The rubric below is the whole prompt - nothing about how -1/0/+1 are
-defined lives anywhere else, so it's auditable by reading this file, not
-a black box tuned by trial and error against hidden examples.
+Sentiment analysis: rubric-based LLM scoring of management's tone
+during the Q&A portion of an earnings call - not a generic sentiment
+classifier, since financial tone isn't general sentiment ("we're seeing
+headwinds" reads negative with no negative-sounding words). The rubric
+in `_SYSTEM_PROMPT` below is the whole prompt, so it's auditable by
+reading this file rather than tuned against hidden examples.
 """
 import logging
 from typing import Optional
@@ -27,22 +23,6 @@ logger = logging.getLogger(__name__)
 SENTIMENT_MODEL = "claude-sonnet-5"
 SENTIMENT_MAX_TOKENS = 300
 
-# Scoring rubric 
-#  -1.0  Clearly negative: management explicitly describes results, a
-#        program, or the outlook as disappointing, weak, or missing
-#        expectations; language is defensive, evasive, or apologetic when
-#        pressed. Example anchor: "the quarter was disappointing here."
-#  -0.5  Mildly negative: acknowledges real headwinds/softness/pressure
-#        without alarm - measured concern, not crisis language.
-#   0.0  Neutral: factual, matter-of-fact tone; answers the question
-#        directly with data, no clear positive or negative lean, or a
-#        genuine even balance of good and bad points.
-#  +0.5  Mildly positive: confident but measured - describes results as
-#        solid/in line/on track, modest optimism without hard superlatives.
-#  +1.0  Clearly positive: enthusiastic, describes results/outlook as
-#        strong, record-setting, or ahead of expectations, with no
-#        material hedging. Example anchor: unequivocally affirming
-#        sustained growth across multiple demand drivers.
 _SYSTEM_PROMPT = """Score management's tone during the Q&A portion of this earnings call, from -1 \
 (clearly negative) to +1 (clearly positive). Score FINANCIAL tone, not general politeness or \
 pleasantness - assess confidence, hedging, and framing about the business itself. A courteous \
@@ -84,11 +64,8 @@ _SCORE_SENTIMENT_TOOL = {
 
 
 def score_sentiment(raw_text: str, *, client: Optional[anthropic.Anthropic] = None) -> Optional[float]:
-    """
-    Scores `raw_text`'s Q&A-chunk tone per the rubric above, returning a
-    float in [-1, 1]. Returns None for a transcript with no qna chunks at
-    all 
-    """
+    """Scores `raw_text`'s Q&A-chunk tone per the rubric above, returning
+    a float in [-1, 1], or None for a transcript with no qna chunks."""
     qna_texts = [c.chunk_text for c in chunk_transcript(raw_text) if c.chunk_type == "qna"]
     if not qna_texts:
         return None

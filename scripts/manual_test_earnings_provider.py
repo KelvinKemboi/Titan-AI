@@ -1,8 +1,7 @@
 """
 Manual test: exercises src/earnings/provider_client.py against the real
-API Ninjas endpoints -
-pagination via search_transcripts, then a full-text fetch via
-get_transcript for the first result found.
+API Ninjas endpoints - pagination via search_transcripts, then a
+full-text fetch via get_transcript for the first result found.
 
 Run:
     python -m scripts.manual_test_earnings_provider [TICKER]

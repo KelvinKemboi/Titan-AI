@@ -1,15 +1,9 @@
 """
-Deterministic fixture data for scripts/eval_chat_service.py - a small, known dataset the eval's shape
-checks can rely on, instead of "whatever happens to already be in the
-dev DB" (fragile/non-reproducible - the problem with
-scripts/eval_conversation_memory.py's own "requires a Postgres with a
-completed scan that includes every ticker below" precondition).
-
-Always inserts a *fresh* ScanRun (and fresh FactorScore/EarningsInsight
-rows off it) rather than upserting one of the existing dev DB's ScanRuns, so that the eval's own
-"latest scan_run_id" notion is consistent with the fixture's own
-FactorScore rows. Also inserts a deliberately-stale ScanRun (and a
-single FactorScore row off it) to test that the eval's own "latest scan_run_id" notion is global, not per-ticker.
+Deterministic fixture data for scripts/eval_chat_service.py - a small,
+known dataset the eval's checks can rely on instead of whatever happens
+to already be in the dev DB. Always inserts a fresh ScanRun rather than
+reusing an existing one, and a deliberately-stale second ScanRun to
+exercise the "latest scan is global, not per-ticker" edge case.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -67,29 +61,20 @@ def _replace_insight(db, transcript_id, **fields) -> None:
 
 
 def seed_eval_fixtures(db) -> dict:
-    """Seeds MSFT/GOOGL/NVDA/AMD/IBM companies + factor scores (fresh
+    """Seeds MSFT/GOOGL/NVDA/AMD companies and factor scores (fresh
     scan), NVDA's 2 quarters of earnings history (Q1 insufficient_history,
     Q2 a real QoQ diff against Q1), AMD's 1 quarter (insufficient_history),
     and placeholder memo_embeddings for the qualitative search case.
-    Returns {"scan_run_id": ..., "stale_scan_run_id": ...} for callers
-    that want to reference the exact ids created.
+    Returns the scan_run_id and stale_scan_run_id created.
     """
     now = datetime.now(timezone.utc)
 
-    # The STALE scan must be created (and get its scan_run_id assigned)
-    # BEFORE the fresh one below - compare_tickers/answer_question's FAQ
-    # cache both treat the *global* MAX(scan_run_id) as "the latest scan,"
-    # not a per-ticker notion, so this row must sit on a strictly older
-    # (lower) scan_run_id or it would wrongly become "the latest scan"
-    # itself and starve MSFT/GOOGL/NVDA/AMD of a comparable scan.
-    #
-    # Uses a dedicated synthetic ticker (not a real S&P 500 one, e.g.
-    # IBM) precisely because get_factor_scores/explain_ticker resolve
-    # "latest" per-ticker by MAX(computed_at) - a real ticker already
-    # scanned by an actual run (this dev DB's IBM has real rows from
-    # earlier full-universe scans, all newer than any deliberately-old
-    # timestamp this fixture could set) would silently shadow this
-    # fixture's intentionally-stale row with a real, fresher one.
+    # The stale scan must be created first so it gets a lower scan_run_id
+    # than the fresh one below - "latest scan" is global (the max
+    # scan_run_id), not per-ticker, so this must not outrank it. Uses a
+    # dedicated synthetic ticker rather than a real one, since a real
+    # ticker's actual scan history could be newer than this deliberately
+    # stale timestamp and shadow it.
     stale_computed_at = now - timedelta(days=120)
     stale_scan_run = ScanRun(
         status="complete", universe_size=1,

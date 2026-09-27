@@ -1,3 +1,8 @@
+"""
+Quarter-over-quarter diffing: a deterministic comparison of one
+transcript's structured insights against the ticker's immediately prior
+ingested quarter, no LLM call involved.
+"""
 import logging
 from typing import Any, Dict, Optional
 
@@ -30,13 +35,10 @@ def _diff_risks(prior_risks, current_risks):
 def compute_qoq_changes(db: Session, ticker: str, transcript_id: int) -> Dict[str, Any]:
     """
     Computes `transcript_id`'s QoQ diff against `ticker`'s immediately
-    prior ingested quarter
-
-    Returns {"status": "insufficient_history"} when there's no prior quarter to diff against at
-    all, or when a prior transcript row exists but has no earnings_insights yet.
-
-    Raises ValueError if `transcript_id` isn't an ingested transcript for
-    `ticker` - a caller error, not a data-availability question.
+    prior ingested quarter. Returns {"status": "insufficient_history"}
+    when there's no prior quarter to diff against, or it has no
+    earnings_insights yet. Raises ValueError if `transcript_id` isn't an
+    ingested transcript for `ticker`.
     """
     ticker = ticker.strip().upper()
     transcripts = _get_earnings_for_ticker(db, ticker)  # most-recent fiscal_year/fiscal_quarter first
@@ -74,9 +76,7 @@ def compute_qoq_changes(db: Session, ticker: str, transcript_id: int) -> Dict[st
 
 
 def generate_qoq_changes(db: Session, transcript_id: int, ticker: str) -> Optional[EarningsInsight]:
-    """
-    Computes and persists `transcript_id`'s earnings_insights.qoq_changes
-    """
+    """Computes and persists `transcript_id`'s qoq_changes."""
     try:
         qoq_changes = compute_qoq_changes(db, ticker, transcript_id)
     except Exception:

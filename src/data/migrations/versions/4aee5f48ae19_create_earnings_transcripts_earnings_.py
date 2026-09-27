@@ -17,14 +17,9 @@ down_revision: Union[str, Sequence[str], None] = '5477c6e8f7e8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Hardcoded (not imported from src.embeddings.service), same as
-# 5477c6e8f7e8's memo_embeddings.embedding - this migration stays a frozen,
-# self-contained record regardless of future application-code changes. Must
-# match memo_embeddings.embedding's dimension: both are voyage-large-2
-# vectors (src/embeddings/service.py) sharing the same retrieval pipeline
-# (architecture.md §6), so a mismatch here would silently break nothing
-# structurally but make the two tables incompatible with a single shared
-# query/model dimension expectation.
+# Hardcoded rather than imported from src.embeddings.service, so this
+# migration stays a frozen, self-contained record. Must match
+# memo_embeddings.embedding's dimension - both are voyage-large-2 vectors.
 _EMBEDDING_DIMENSION = 1536
 
 
@@ -58,11 +53,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_earnings_chunks_transcript_id', 'earnings_chunks', ['transcript_id'])
-    # HNSW (not IVFFlat), cosine ops - same rationale/index type as
-    # ix_memo_embeddings_embedding_hnsw (5477c6e8f7e8): usable immediately
-    # with no data-dependent `lists` parameter to tune, and cosine ops match
-    # the .cosine_distance() search pattern architecture.md §6 specifies for
-    # earnings_chunks once ingestion lands.
+    # HNSW (not IVFFlat), cosine ops - same as ix_memo_embeddings_embedding_hnsw,
+    # usable immediately with no data-dependent `lists` parameter to tune.
     op.execute(
         "CREATE INDEX ix_earnings_chunks_embedding_hnsw ON earnings_chunks "
         "USING hnsw (embedding vector_cosine_ops)"

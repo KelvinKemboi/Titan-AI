@@ -51,11 +51,10 @@ def upgrade() -> None:
     op.create_index('ix_chat_messages_request_id', 'chat_messages', ['request_id'], unique=False)
     # NOTE: autogenerate also proposed dropping ix_earnings_chunks_embedding_hnsw
     # and ix_memo_embeddings_embedding_hnsw here - both are real HNSW indexes
-    # (architecture.md §4) created by raw SQL in earlier migrations, which
-    # SQLAlchemy's Index construct can't fully express, so autogenerate always
-    # sees them as "missing" from the ORM metadata. Removed by hand - this
-    # migration only adds llm_calls/tool_calls/chat_messages.request_id. See
-    # migration 90f8eff0fcef for the same false positive.
+    # created by raw SQL in earlier migrations, which SQLAlchemy's Index
+    # construct can't fully express, so autogenerate always sees them as
+    # missing. Removed by hand - this migration only adds
+    # llm_calls/tool_calls/chat_messages.request_id.
     # ### end Alembic commands ###
 
 

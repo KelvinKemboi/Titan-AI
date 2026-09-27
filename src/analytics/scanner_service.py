@@ -17,14 +17,9 @@ from titan.analyst import RoboAnalyst
 # crashed process, not an in-progress scan, so it no longer blocks new runs.
 STALE_RUN_THRESHOLD = timedelta(hours=2)
 
-# Arbitrary constant identifying the "is a scan already running" critical
-# section for Postgres advisory locking - any int64 works, as long as it's
-# not reused for an unrelated lock elsewhere in the app (none exist today).
-# Held only across _blocking_run()'s check + the new ScanRun insert below
-# (released at the following commit, since it's transaction-scoped), so two
-# near-simultaneous callers (the hourly scheduler and a manual "Initialize
-# Market Scan" click) can't both pass the check before either has committed -
-# closes a TOCTOU race between the SELECT and the INSERT.
+# Postgres advisory-lock key for the "is a scan already running" check.
+# Held only across _blocking_run()'s check and the new ScanRun insert, so
+# two near-simultaneous callers can't both pass the check before either commits.
 _SCAN_RUN_LOCK_KEY = 727100
 
 
@@ -33,7 +28,7 @@ class ScanAlreadyRunningError(Exception):
 
 
 def _analyze_ticker(ticker):
-    # Delay to prevent IP Bans (Dynamic Throttling)
+    # Randomized delay so concurrent requests don't look like a burst to the data provider.
     time.sleep(random.uniform(0.1, 1.0))
 
     analyst = RoboAnalyst(ticker)
@@ -46,35 +41,26 @@ def _analyze_ticker(ticker):
 def run_scan(tickers, concurrency=5, on_progress=None):
     """
     Runs the factor-scoring scan over `tickers` and returns the valid
-    RoboAnalyst results, unsorted.
-
-    UI-agnostic: callers drive their own progress display via
-    `on_progress(index, total)`, invoked with the same 0-based index and
-    total count for every ticker as it completes.
+    RoboAnalyst results, unsorted. UI-agnostic: callers drive their own
+    progress display via `on_progress(index, total)`.
     """
     results = []
 
-    # Run the analysis concurrently with a thread pool
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = [executor.submit(_analyze_ticker, t) for t in tickers] # Submit each ticker to the thread pool for analysis
+        futures = [executor.submit(_analyze_ticker, t) for t in tickers]
 
-        # Process the results as they complete
         for i, future in enumerate(futures):
             res = future.result()
             if res and res.valid:
                 results.append(res)
-
-            # on_progress callback for UI updates, if provided
             if on_progress:
                 on_progress(i, len(futures))
 
     return results
 
-# compare the results of the scan with the database and persist the new data - update then insert if not exists
 def _upsert_company(session, result):
     """Insert or refresh a companies row from the fundamentals RoboAnalyst.analyze() fetched."""
     info = result.info or {}
-    # Upsert the company data into the database using PostgreSQL's ON CONFLICT clause
     stmt = pg_insert(Company).values(
         ticker=result.ticker,
         name=info.get("longName") or info.get("shortName"),
@@ -94,14 +80,11 @@ def _upsert_company(session, result):
     )
     session.execute(stmt)
 
-# save the factor score for a ticker in a scan run to the database
 def _save_factor_score(session, scan_run_id, result):
     """Insert one factor_scores row from a completed RoboAnalyst result."""
-    # Unpack the individual factor scores from the result metrics
     value_score, momentum_score, quality_score, solvency_score, volatility_score = (
         result.metrics["Scores"]
     )
-    # add the factor score to the database
     session.add(FactorScore(
         ticker=result.ticker,
         scan_run_id=scan_run_id,
@@ -116,11 +99,8 @@ def _save_factor_score(session, scan_run_id, result):
     ))
 
 def _blocking_run(session):
-    """
-    Returns the currently in-progress scan_runs row, or None if there
-    isn't one (or the only `running` row is stale. Its process crashed
-    without ever reaching a terminal status).
-    """
+    """Returns the currently in-progress scan_runs row, or None if there
+    isn't one, or the only `running` row belongs to a crashed process."""
     running = (
         session.query(ScanRun)
         .filter(ScanRun.status == "running")
@@ -138,25 +118,18 @@ def _blocking_run(session):
     return running
 
 
-# scan the tickers and persist the results to the database, handling concurrency and progress updates
 def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
     """
     Runs `run_scan` and persists the outcome to Postgres: one `scan_runs`
     row for the run, one `factor_scores` row per successfully-analyzed
-    ticker, and an upserted `companies` row per ticker from the
-    fundamentals fetched during analysis.
-
-    A run where every ticker fails `analyze()` is marked `failed`; a run
-    where some (but not all) tickers fail is marked `partial`, so a
-    partial failure never fails the whole run. Raises
-    `ScanAlreadyRunningError` instead of starting a new run if one is
-    already in progress. Returns the same `run_scan` results, unsorted.
+    ticker, and an upserted `companies` row per ticker. A run where every
+    ticker fails is marked `failed`; a partial failure is marked
+    `partial`. Raises `ScanAlreadyRunningError` if one is already in
+    progress.
     """
     session = SessionLocal()
     try:
-        # Held for the remainder of this transaction (through the commit
-        # right after the ScanRun insert below) so the check-then-insert
-        # below is atomic across concurrent callers.
+        # Held through the commit below so the check-then-insert is atomic across concurrent callers.
         session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SCAN_RUN_LOCK_KEY})
 
         blocking = _blocking_run(session)
@@ -166,23 +139,19 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
                 f"{blocking.started_at}; refusing to start a new scan"
             )
 
-        scan_run = ScanRun(status="running", universe_size=len(tickers)) # create a new scan run record in the database with the status "running" and the total number of tickers to be scanned
+        scan_run = ScanRun(status="running", universe_size=len(tickers))
         session.add(scan_run)
         session.commit()
 
         try:
-            # Run the scan
             results = run_scan(tickers, concurrency=concurrency, on_progress=on_progress)
-            # Persist the results to the database
             for result in results:
                 _upsert_company(session, result)
                 _save_factor_score(session, scan_run.id, result)
-            # Embeds + persists each memo for semantic search (search_memos tool).
-            # Failures inside are logged and swallowed there, not raised - a scan's
-            # factor scores must still count as persisted even if this doesn't.
+            # Failures here are logged and swallowed inside index_memos, not raised.
             index_memos(session, scan_run.id, results)
         except Exception:
-            session.rollback() # Rollback the session in case of an exception to avoid partial commits
+            session.rollback()
             scan_run.status = "failed"
             scan_run.completed_at = func.now()
             session.commit()
@@ -197,8 +166,7 @@ def run_scan_and_persist(tickers, concurrency=5, on_progress=None):
         scan_run.completed_at = func.now()
         session.commit()
 
-        # Invalidate only after the results above are durably committed
-        # ensures that any subsequent reads of /rankings or /company/{ticker} will see the new data, not stale cached data.
+        # Invalidate only after the commit above, so cached reads never see stale data.
         if results:
             invalidate_scan_caches([r.ticker for r in results])
 

@@ -9,15 +9,11 @@ from src.data.models import ChatMessage, ChatSession
 
 def get_or_create_session(db: Session, session_id: Optional[str], user_id: str) -> ChatSession:
     """
-    Returns the ChatSession for `session_id`, scoped to `user_id` (the
-    authenticated caller - see src/api/auth.py). Omitted `session_id` -> a
-    fresh session (new random id) owned by `user_id`. Provided but not yet
-    used -> created with that id, owned by `user_id`, so a client can pick
-    its own session_id up front. Raises ValueError if `session_id` isn't a
-    valid UUID. A newly created row is also flushed immediately.
-
-    Raises PermissionError if `session_id` already exists and belongs to a
-    *different* user_id 
+    Returns the ChatSession for `session_id`, scoped to `user_id`. An
+    omitted `session_id` creates a fresh session; a given but unused one
+    is created with that id, so a client can pick its own session_id up
+    front. Raises ValueError for a malformed `session_id`, or
+    PermissionError if it already belongs to a different user.
     """
     if session_id is None:
         session = ChatSession(id=uuid.uuid4(), user_id=user_id)
@@ -43,9 +39,7 @@ def get_or_create_session(db: Session, session_id: Optional[str], user_id: str) 
 
 
 def get_recent_messages(db: Session, session_id: uuid.UUID, limit: int) -> List[ChatMessage]:
-    """
-    Last `limit` chat_messages rows for `session_id`, oldest first
-    """
+    """Last `limit` chat_messages rows for `session_id`, oldest first."""
     rows = (
         db.query(ChatMessage)
         .filter(ChatMessage.session_id == session_id)
@@ -64,10 +58,9 @@ def add_message(
     sources: Optional[List[Source]] = None,
     request_id: Optional[str] = None,
 ) -> ChatMessage:
-    """Persists one turn. `sources` mirrors ToolResult.sources : pass None
-    (or leave the default) for user messages. `request_id` ties this row to the llm_calls/tool_calls
-    traced under the same id - pass the same one for both the user and
-    assistant rows of one /chat call, since they're one traced request."""
+    """Persists one turn. `sources` mirrors ToolResult.sources; leave it
+    unset for user messages. `request_id` ties this row to the
+    llm_calls/tool_calls traced under the same id."""
     message = ChatMessage(
         session_id=session_id,
         role=role,

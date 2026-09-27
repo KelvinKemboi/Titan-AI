@@ -1,9 +1,9 @@
 """
-Manual test: prompt Claude with a comparison
-question and confirm it calls `compare_tickers` rather than fabricating
-numbers from training data. Requires ANTHROPIC_API_KEY and a Postgres
-with at least one completed scan (`streamlit run app.py` -> Initialize
-Market Scan, or `python -m src.analytics.scheduler`).
+Manual test: prompt Claude with a comparison question and confirm it
+calls `compare_tickers` rather than fabricating numbers from training
+data. Requires ANTHROPIC_API_KEY and a Postgres with at least one
+completed scan (`streamlit run app.py` -> Initialize Market Scan, or
+`python -m src.analytics.scheduler`).
 
 Run:
     python -m scripts.manual_test_tool_calling

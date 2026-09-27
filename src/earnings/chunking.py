@@ -1,28 +1,23 @@
 """
-Splits one earnings_transcripts.raw_text into earnings_chunks-shaped rows
-(technical-design.md §7): chunked by speaker turn and tagged
-prepared_remarks/qna, never by a fixed token window, so "who said this" and
-which section it came from both survive into the embedded chunk.
+Splits one earnings_transcripts.raw_text into earnings_chunks-shaped
+rows: chunked by speaker turn and tagged prepared_remarks/qna, never by
+a fixed token window, so "who said this" and which section it came from
+both survive into the embedded chunk.
 
-Format assumption (confirmed against api-ninjas.com's actual
-`earningstranscript` response - see docs/technical-design.md §7): each
-speaker turn is its own paragraph, starting with a short capitalized name
-followed by ": " (e.g. "Tim Cook: Thank you, Suhasini..."), Operator turns
-included. A transcript that doesn't follow this convention (or never
-explicitly announces the Q&A - see _QNA_TRANSITION_PATTERN) degrades to a
-single prepared_remarks section rather than misclassifying content as qna.
+Format assumption: each speaker turn is its own paragraph, starting
+with a short capitalized name followed by ": " (e.g. "Tim Cook: Thank
+you, Suhasini..."). A transcript that doesn't follow this convention,
+or never explicitly announces the Q&A, degrades to a single
+prepared_remarks section rather than misclassifying content as qna.
 """
 import re
 from typing import List, Tuple
 
 from pydantic import BaseModel
 
-# A rough proxy for token count (no tokenizer dependency here), not a
-# context-window limit - voyage-large-2 (src/embeddings/service.py) allows
-# far more than this per input. Sized instead for retrieval granularity: a
-# chunk this size is roughly one focused exchange or a couple of paragraphs,
-# small enough that a similarity search returns something specific rather
-# than a whole multi-topic monologue.
+# A rough proxy for token count, sized for retrieval granularity rather
+# than a context-window limit - small enough that a similarity search
+# returns one focused exchange, not a whole multi-topic monologue.
 MAX_CHUNK_CHARS = 2000
 
 # Speaker-turn label: 1-4 capitalized words (allows "O'Brien", "St. Clair",
@@ -33,21 +28,11 @@ _SPEAKER_TURN = re.compile(
     r"^([A-Z][a-zA-Z'.-]*(?:\s+[A-Z][a-zA-Z'.-]*){0,3}):\s+", re.MULTILINE,
 )
 
-# Common ways an operator/IR host actually announces the Q&A is starting
-# NOW, in real calls (confirmed against real Apple and Microsoft
-# transcripts - see tests/unit/earnings/test_chunking.py; wording varies
-# company to company, so this is a set of known phrasings, not one fixed
-# string). Whichever turn contains one of these is the last
-# prepared_remarks turn; everything after it is qna.
-#
-# Deliberately NOT matching a bare "question-and-answer session" or
-# "first question" alone: real operator scripts routinely open the call
-# with a future-tense announcement ("a question-and-answer session will
-# follow the formal presentation") long before prepared remarks are even
-# under way, and an analyst can preface their own turn with "my first
-# question is..." - both would be false positives for the actual
-# boundary. Every phrase below is specific to the moment the host/operator
-# actually opens the floor, not to a bare mention of Q&A existing.
+# Phrasings that mark the operator/host actually opening the floor to
+# questions right now - whichever turn contains one is the last
+# prepared_remarks turn, everything after is qna. Deliberately excludes
+# a bare "question-and-answer session" mention, since operators often
+# announce that in future tense long before it actually happens.
 _QNA_TRANSITION_PATTERN = re.compile(
     r"first question comes from"
     r"|may we have the first question"

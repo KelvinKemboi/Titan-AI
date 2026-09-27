@@ -1,6 +1,6 @@
 """
- a targeted, structured extraction pass classifying how a company's forward guidance changed this
-call, with a supporting quote
+Guidance extraction: a targeted, structured pass classifying how a
+company's forward guidance changed this call, with a supporting quote.
 """
 import logging
 from typing import Optional, Tuple
@@ -105,11 +105,8 @@ def extract_guidance(
 def generate_guidance(
     db: Session, transcript_id: int, raw_text: str, *, client: Optional[anthropic.Anthropic] = None,
 ) -> Optional[EarningsInsight]:
-    """
-    Extracts and persists `transcript_id`'s earnings_insights.guidance_direction
-    + guidance_quote. Upserts on the table's own unique index (transcript_id),
-    same convention as src/earnings/summary.py:generate_summary for earnings_insights.summary_text
-    """
+    """Extracts and persists `transcript_id`'s guidance_direction and
+    guidance_quote, upserting on the table's transcript_id index."""
     try:
         direction, quote = extract_guidance(raw_text, client=client)
     except Exception:

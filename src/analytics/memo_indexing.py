@@ -1,10 +1,8 @@
 """
-Embeds and persists each scan's analyst memos (RoboAnalyst.generate_memo()
-output) into memo_embeddings - Titan's first qualitative retrieval source
-(docs/architecture.md #2, #6). Called by scanner_service right after a
-scan's factor_scores are persisted, so search_memos
-(src/agents/tools/memo_tools.py) has fresh, embedded memos as soon as a
-scan completes.
+Embeds and persists each scan's analyst memos into memo_embeddings, the
+qualitative retrieval source behind the search_memos tool. Called by
+scanner_service right after a scan's factor_scores are persisted, so
+search_memos has fresh, embedded memos as soon as a scan completes.
 """
 import logging
 from typing import List

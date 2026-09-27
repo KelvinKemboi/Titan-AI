@@ -60,7 +60,7 @@ def test_honors_an_explicit_quarter(monkeypatch):
     assert result.sources[0].ref_id == 1
 
 
-# source metadata includes transcript_id (acceptance criterion)
+# source metadata includes transcript_id
 def test_source_type_and_transcript_id_ref(monkeypatch):
     monkeypatch.setattr(
         "src.agents.tools.earnings_tools._get_earnings_for_ticker",

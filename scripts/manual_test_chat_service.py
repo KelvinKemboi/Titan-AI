@@ -1,13 +1,11 @@
 """
-Manual test: exercise the Chat/Agent Service against a real Postgres and
-the live Anthropic API
+Manual test: exercise the Chat/Agent Service against a real Postgres
+and the live Anthropic API.
 
   1. A question answerable by one tool call gets a correct, sourced response.
-  2. The system prompt keeps the model off outside/training knowledge for a
-     fact Titan has no tool for - "what sector is
-     Apple in" should be declined rather than answered from training data,
-     since there's no company-profile tool yet
-  3. An unknown ticker produces a graceful response, not a raw exception
+  2. "What sector is Apple in" should be declined rather than answered
+     from training data, since there's no company-profile tool yet.
+  3. An unknown ticker produces a graceful response, not a raw exception.
 
 Requires ANTHROPIC_API_KEY and a Postgres with at least one completed scan
 that includes AAPL (`streamlit run app.py` -> Initialize Market Scan, or

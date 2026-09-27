@@ -1,10 +1,7 @@
 """
 Manual test: drives the real tool-calling loop against all six Phase 2
-example questions (technical-design.md §8-§13's Objective lines) and
-checks each one calls a real tool and produces a sourced final answer -
-the acceptance test for get_qoq_changes/get_analyst_report
-(src/agents/tools/earnings_tools.py, src/agents/tools/report_tools.py),
-which complete tool coverage for the last two of the six.
+example questions and checks each one calls a real tool and produces a
+sourced final answer.
 
 Requires ANTHROPIC_API_KEY, and a ticker with a completed scan
 (`streamlit run app.py` -> Initialize Market Scan, or

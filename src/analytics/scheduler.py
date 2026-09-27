@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 SCAN_INTERVAL_SECONDS = 3600
 
 
-# function that will be called by the scheduler to run the scan and persist the results to the database. It handles exceptions and logs the results.
 def scheduled_scan():
     tickers = get_sp500_tickers()
     logger.info("Starting scheduled scan of %d tickers", len(tickers))
@@ -45,7 +44,7 @@ def scheduled_scan():
 
 
 def main():
-    scheduler = BlockingScheduler() # Create a blocking scheduler that runs in the foreground and blocks the main thread
+    scheduler = BlockingScheduler()
     scheduler.add_job(
         scheduled_scan,
         trigger=IntervalTrigger(seconds=SCAN_INTERVAL_SECONDS),

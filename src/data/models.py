@@ -11,18 +11,18 @@ from sqlalchemy import (
     String,
     Text,
     TIMESTAMP,
-) # datatypes for the columns in the database tables
-from sqlalchemy.dialects.postgresql import JSONB, UUID # PostgreSQL-specific JSONB/UUID datatypes
-from sqlalchemy.orm import declarative_base # object-relational mapping (ORM) base class for defining models
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 from src.embeddings.service import EMBEDDING_DIMENSION
 
 Base = declarative_base()
 
-# reference data per ticker. Refreshed on each scan run.
+
 class Company(Base):
-    """Reference dataxa per ticker. Refreshed on each scan run."""
+    """Reference data per ticker, refreshed on each scan run."""
 
     __tablename__ = "companies"
 
@@ -33,7 +33,7 @@ class Company(Base):
     description = Column(Text)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
-# log of each ticker's scan run
+
 class ScanRun(Base):
     """One row per Scanner Service execution."""
 
@@ -45,7 +45,7 @@ class ScanRun(Base):
     universe_size = Column(Integer)
     status = Column(String, nullable=False, default="running")
 
-# store the factor scores for each ticker in each scan run
+
 class FactorScore(Base):
     """One row per ticker per scan run - the factor-score time series."""
 
@@ -61,20 +61,17 @@ class FactorScore(Base):
     volatility_score = Column(Numeric)
     composite_score = Column(Numeric)
     rating = Column(String)  # STRONG BUY | BUY | HOLD | SELL
-    raw_metrics = Column(JSONB)  # price, rsi, peg, beta, etc. (RoboAnalyst.metrics)
+    raw_metrics = Column(JSONB)  # price, rsi, peg, beta, etc.
     computed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("ix_factor_scores_ticker_computed_at", "ticker", computed_at.desc()),
     )
 
-# one row per chat conversation
+
 class ChatSession(Base):
-    """A chat conversation, owned by the authenticated caller (src/api/auth.py's
-    MVP API-key scheme) - chat_repository.get_or_create_session sets user_id on
-    every new row and rejects a request for an existing session_id owned by a
-    different user_id. Nullable at the DB level only for rows created before
-    auth existed; every new row always has one."""
+    """A chat conversation, owned by the authenticated caller. A session
+    owned by one user can't be read or extended by another."""
 
     __tablename__ = "chat_sessions"
 
@@ -82,14 +79,12 @@ class ChatSession(Base):
     user_id = Column(String)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-# one row per user/assistant turn in a chat_sessions conversation
+
 class ChatMessage(Base):
-    """One turn (user question or assistant response) in a chat_sessions
-    conversation. `sources`mirrors ToolResult.sources for assistant messages; empty for user ones.
-    `request_id` (technical-design.md §18) ties both turns of one /chat
-    call to the llm_calls/tool_calls rows traced under the same id -
-    nullable since it predates this column and a cache hit's turn has
-    nothing to trace either."""
+    """One turn (user question or assistant response) in a chat session.
+    `sources` mirrors ToolResult.sources for assistant messages, empty for
+    user ones. `request_id` groups a turn with the llm_calls/tool_calls
+    rows traced for it."""
 
     __tablename__ = "chat_messages"
 
@@ -106,13 +101,10 @@ class ChatMessage(Base):
         Index("ix_chat_messages_request_id", "request_id"),
     )
 
-# one row per ticker per scan run: the embedded analyst memo (RoboAnalyst.generate_memo()
-# output) - Titan's first qualitative retrieval source (docs/architecture.md #2, #6)
+
 class MemoEmbedding(Base):
     """Embedded RoboAnalyst.generate_memo() text for one ticker in one scan
-    run, searched by src/analytics/memo_search.py (cosine similarity) and
-    exposed to chat via the search_memos tool
-    (src/agents/tools/memo_tools.py)."""
+    run - the qualitative retrieval source behind the search_memos tool."""
 
     __tablename__ = "memo_embeddings"
 
@@ -131,12 +123,11 @@ class MemoEmbedding(Base):
         ),
     )
 
-# one row per ticker per fiscal quarter
+
 class EarningsTranscript(Base):
     """One earnings call transcript for one (ticker, fiscal_year,
-    fiscal_quarter) - fetched via src/earnings/provider_client.py and
-    persisted by src/earnings/ingestion.py:ingest_transcript, which is
-    idempotent on the same unique index this table enforces."""
+    fiscal_quarter). Ingestion upserts on that same unique index, so
+    re-ingesting an already-stored quarter is a no-op."""
 
     __tablename__ = "earnings_transcripts"
 
@@ -156,9 +147,10 @@ class EarningsTranscript(Base):
         ),
     )
 
-# one row per chunk of an earnings call transcript (prepared_remarks or qna)
+
 class EarningsChunk(Base):
-    """One embedded chunk of an earnings call transcript"""
+    """One embedded chunk of an earnings call transcript, tagged by
+    section (prepared remarks or Q&A)."""
 
     __tablename__ = "earnings_chunks"
 
@@ -172,20 +164,20 @@ class EarningsChunk(Base):
         Index("ix_earnings_chunks_transcript_id", "transcript_id"),
     )
 
-# one row per transcript: derived insights, filled in by separate extraction
+
 class EarningsInsight(Base):
-    """Derived insights for one earnings call transcript-one row per
-    transcript_id, populated incrementally by independent extraction
-    passes."""
+    """Derived insights for one earnings call transcript - one row per
+    transcript, populated incrementally as each extraction pass
+    (summary, guidance, sentiment, risks, QoQ diff) completes."""
 
     __tablename__ = "earnings_insights"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     transcript_id = Column(BigInteger, ForeignKey("earnings_transcripts.id"), nullable=False)
     summary = Column(Text)
-    guidance_direction = Column(String) # raised | maintained | lowered | none_given | unclear
+    guidance_direction = Column(String)  # raised | maintained | lowered | none_given | unclear
     guidance_quote = Column(Text)  # supporting quote for guidance_direction
-    sentiment_score = Column(Numeric) # -1..1
+    sentiment_score = Column(Numeric)  # -1..1
     risks = Column(JSONB)
     qoq_changes = Column(JSONB)
     generated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -194,8 +186,13 @@ class EarningsInsight(Base):
         Index("ix_earnings_insights_transcript_id", "transcript_id", unique=True),
     )
 
+
 class EarningsIngestionJob(Base):
-    """One calendar-discovered reporting event for one ticker"""
+    """One calendar-discovered earnings date for one ticker, and the
+    state of this system's attempts to ingest its transcript. Retries
+    back off on a miss rather than failing permanently, and give up
+    (`status="exhausted"`) only after repeated attempts or too much time
+    elapsed."""
 
     __tablename__ = "earnings_ingestion_jobs"
 
@@ -223,14 +220,12 @@ class EarningsIngestionJob(Base):
         ),
     )
 
-# one row per ticker: tracks scripts/backfill_earnings_transcripts.py's
-# one-time historical backfill so a killed/resumed run skips tickers
-# already done instead of restarting from the first ticker
+
 class EarningsBackfillProgress(Base):
-    """Whether the one-time historical backfill (technical-design.md §15)
-    has already processed a ticker - `status="done"` tickers are skipped
-    on a resumed run; `status="failed"` (the provider call itself failed,
-    not just "fewer than 4 quarters exist") is retried on the next run."""
+    """Tracks the one-time historical backfill per ticker, so a killed
+    or resumed run skips tickers already marked "done" instead of
+    restarting from scratch. `status="failed"` (the provider call itself
+    failed) is retried on the next run."""
 
     __tablename__ = "earnings_backfill_progress"
 
@@ -240,17 +235,12 @@ class EarningsBackfillProgress(Base):
     attempted_at = Column(TIMESTAMP(timezone=True), nullable=False)
     error = Column(Text)
 
-# one row per model API call (intent classification, chat generation, or
-# any future LLM call site that opts in) - the observability/tracing
-# feature (technical-design.md §18) grouping key across a whole /chat
-# request is `request_id`, not session_id, so a request that crashes
-# before its chat_messages row is ever written is still fully traceable.
+
 class LLMCall(Base):
-    """One `client.messages.create` call and its token usage/cost/latency.
-    `request_id` is a fresh UUID minted once per answer_question() call
-    (technical-design.md §18) - every LLM call and tool call made while
-    answering that one question shares it, letting a bad answer's
-    chat_messages row be joined straight to everything that produced it."""
+    """One `client.messages.create` call and its token usage, cost, and
+    latency. `request_id` is a fresh UUID minted once per chat turn -
+    every LLM and tool call made while answering that turn shares it, so
+    a bad answer can be traced back to everything that produced it."""
 
     __tablename__ = "llm_calls"
 
@@ -260,7 +250,7 @@ class LLMCall(Base):
     model = Column(String, nullable=False)
     input_tokens = Column(Integer)
     output_tokens = Column(Integer)
-    cost_usd = Column(Numeric)  # None when `model` has no entry in MODEL_PRICING_PER_MILLION_TOKENS
+    cost_usd = Column(Numeric)  # null when the model has no entry in the pricing table
     latency_ms = Column(Integer)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -269,14 +259,12 @@ class LLMCall(Base):
         Index("ix_llm_calls_created_at", "created_at"),
     )
 
-# one row per tool_use block executed within a /chat request - the
-# "which tool call(s) produced the incorrect grounding data" trace
-# (technical-design.md §18): `tool_input`/`sources` are the actual
-# arguments and resulting Source metadata for THIS call specifically,
-# independent of whatever the final aggregated answer ended up citing.
+
 class ToolCall(Base):
-    """One tool_use block's execution and outcome, keyed by the same
-    request_id as the LLMCall rows from the same /chat request."""
+    """One tool call's execution and outcome, keyed by the same
+    request_id as the LLMCall rows from the same chat turn. `tool_input`
+    and `sources` capture this call's own arguments and results,
+    independent of what the final answer ended up citing."""
 
     __tablename__ = "tool_calls"
 

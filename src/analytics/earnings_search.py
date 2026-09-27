@@ -1,6 +1,4 @@
-"""
-Semantic search over earnings_chunks 
-"""
+"""Semantic search over earnings_chunks, across every ingested ticker/quarter."""
 from datetime import datetime
 from typing import List, Optional
 

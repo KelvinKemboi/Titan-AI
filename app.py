@@ -83,10 +83,9 @@ if "chat_history" not in st.session_state:
 
 
 def _fetch_report_memo(ticker, fallback_memo):
-    """adds the "Recent Earnings" section when
-    the ticker has ingested earnings data. Falls back to the scan's own
-    plain memo if the gateway is unreachable, so a
-    gateway outage degrades the report rather than breaking the page"""
+    """Fetches the full analyst report memo (including the "Recent Earnings"
+    section) from the gateway, cached per ticker. Falls back to the scan's
+    own plain memo if the gateway is unreachable."""
     cache = st.session_state.setdefault("report_memos", {})
     if ticker in cache:
         return cache[ticker]
@@ -115,7 +114,7 @@ def _render_factor_breakdown(detail):
     """Renders a factor_score source's `detail`: the full per-factor
     breakdown (score/weight/contribution/driver) when it came from
     get_factor_scores, or just the five raw factor scores when it came
-    from compare_tickers"""
+    from compare_tickers."""
     factors = detail.get("factors")
     if factors:
         for f in factors:
@@ -132,7 +131,7 @@ def _render_factor_breakdown(detail):
 
 def _render_source(source):
     """Renders one Source's verification detail (src/agents/tools/base.py) -
-    enough to check the claim it backs against the underlying data"""
+    enough to check the claim it backs against the underlying data."""
     ticker = source.get("ticker")
     source_type = source.get("type")
     as_of = _format_as_of(source.get("as_of"))
@@ -166,7 +165,7 @@ with st.sidebar:
     st.header("Titan Analyst Chat")
     st.caption("Ask about a ticker's factor scores or compare tickers, backed by the latest scan.")
 
-    chat_log = st.container(height=400) # container to hold the chat messages
+    chat_log = st.container(height=400)
     with chat_log:
         for turn in st.session_state["chat_history"]:
             with st.chat_message(turn["role"]):
@@ -185,7 +184,7 @@ with st.sidebar:
     chat_prompt = st.chat_input("Ask Titan a question about the market or a specific stock...")
     if chat_prompt:
         st.session_state["chat_history"].append({"role": "user", "content": chat_prompt, "sources": []})
-        try: # Call the FastAPI backend to get a response from the AI model
+        try:
             api_response = requests.post(
                 CHAT_API_URL,
                 json={"session_id": st.session_state["chat_session_id"], "message": chat_prompt},
@@ -193,7 +192,6 @@ with st.sidebar:
             )
             api_response.raise_for_status()
             payload = api_response.json()
-        #handle network errors and inform the user
         except requests.RequestException as exc:
             st.session_state["chat_history"].append(
                 {
@@ -214,7 +212,6 @@ with st.sidebar:
         st.rerun()
 
 if st.button("Initialize Market Scan"):
-    # Get Universe
     with st.status("Connecting to Market Data Streams...", expanded=True) as status:
         st.write("Downloading S&P 500 Index constituents...")
         tickers = get_sp500_tickers()
@@ -255,7 +252,6 @@ if st.button("Initialize Market Scan"):
 # across reruns triggered elsewhere on the page (e.g. the chat's st.rerun()).
 results = st.session_state["scan_results"]
 if results:
-    # Sort by Score
     results.sort(key=lambda x: x.score, reverse=True)
     top_picks = results[:5]
 
