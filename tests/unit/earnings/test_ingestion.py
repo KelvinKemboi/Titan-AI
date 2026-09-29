@@ -372,7 +372,7 @@ def test_no_transcript_available_returns_none_without_touching_the_db(monkeypatc
     assert any("ZZZZ" in record.message for record in caplog.records)
 
 
-#an ordinary provider failure is logged and swallowed, not a hard failure
+# an ordinary provider failure is logged and swallowed, not a hard failure
 def test_provider_error_is_logged_and_swallowed(monkeypatch, caplog):
     monkeypatch.setattr(
         "src.earnings.ingestion.get_transcript", MagicMock(side_effect=EarningsProviderError("503 from provider"))

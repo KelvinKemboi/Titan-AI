@@ -21,10 +21,9 @@ def _bound_params(stmt):
     return stmt.compile(dialect=postgresql.dialect()).params
 
 
-# Recent-but-not-today, relative to whenever these tests actually run -
-# a fixed calendar date would silently drift out of MAX_WINDOW over time
-# and start failing every "still within window" test below for reasons
-# unrelated to what they're testing.
+# Recent-but-not-today, relative to whenever these tests run - a fixed
+# calendar date would drift out of MAX_WINDOW over time and break the
+# "still within window" tests below for unrelated reasons.
 _RECENT_EARNINGS_DATE = (datetime.now(timezone.utc) - timedelta(days=2)).date()
 
 

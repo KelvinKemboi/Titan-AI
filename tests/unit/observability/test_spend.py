@@ -134,11 +134,9 @@ def test_top_sessions_by_spend_handles_a_null_cost_sum():
     assert result[0]["output_tokens"] == 0
 
 
-# regression: joining llm_calls straight against chat_messages (not a
-# DISTINCT request_id/session_id subquery first) double-counts every
-# sum, since one /chat turn writes 2 chat_messages rows (user +
-# assistant) sharing one request_id - this must query the deduplicated
-# subquery, not the raw table, to avoid that fan-out.
+# One /chat turn writes 2 chat_messages rows (user + assistant) sharing a
+# request_id, so joining llm_calls straight against chat_messages would
+# double-count every sum - must go through the deduplicated subquery instead.
 def test_top_sessions_by_spend_uses_a_distinct_subquery_not_the_raw_chat_messages_table():
     db = MagicMock()
     db.query.return_value.join.return_value.group_by.return_value.order_by.return_value.limit.return_value.all.return_value = []

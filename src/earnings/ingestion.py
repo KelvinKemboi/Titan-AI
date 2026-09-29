@@ -91,11 +91,9 @@ def ingest_transcript(db: Session, ticker: str, year: int, quarter: int) -> Opti
             .one()
         )
 
-    # Index the transcript's chunks, then generate its summary, guidance,
-    # sentiment score, mentioned risks, and (last, since it diffs against
-    # the other four) its quarter-over-quarter change vs. the prior
-    # ingested quarter - all off the ingestion path, never a user-facing
-    # request, each swallowing its own failures internally.
+    # Chunks, summary, guidance, sentiment, and risks, each swallowing its
+    # own failures since none of this is on a user-facing request path.
+    # QoQ runs last since it diffs against the other four.
     index_transcript_chunks(db, inserted_id, transcript.raw_text)
     generate_summary(db, inserted_id, transcript.raw_text)
     generate_guidance(db, inserted_id, transcript.raw_text)

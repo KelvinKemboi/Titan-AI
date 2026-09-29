@@ -32,7 +32,7 @@ def _patch_scan_internals(monkeypatch, results):
     return session
 
 
-# scan completion invalidates the caches for exactly thetickers it just updated
+# scan completion invalidates the caches for exactly the tickers it just updated
 def test_successful_scan_invalidates_caches_for_scanned_tickers(monkeypatch):
     _patch_scan_internals(monkeypatch, [_fake_result("AAPL"), _fake_result("MSFT")])
     mock_invalidate = MagicMock()

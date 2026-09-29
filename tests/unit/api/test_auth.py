@@ -9,7 +9,7 @@ def _creds(token):
     return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
 
-#_load_api_keys
+# _load_api_keys
 def test_load_api_keys_parses_user_colon_key_pairs(monkeypatch):
     monkeypatch.setenv("API_KEYS", "alice:key-a,bob:key-b")
 

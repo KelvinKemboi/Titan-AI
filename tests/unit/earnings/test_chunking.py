@@ -1,18 +1,9 @@
 """
-Tests chunk_transcript against real earnings call transcript excerpts
-(reformatted into api-ninjas.com's confirmed "Speaker: text" raw_text
-convention - see src/earnings/chunking.py's module docstring), not
-synthetic placeholder text.
-
-Both are genuine, verbatim quotes from real, public earnings calls:
-  - AAPL_TRANSCRIPT: Apple Q2 fiscal year 2024 earnings call (2024-05-02).
-  - MSFT_TRANSCRIPT: Microsoft Q3 fiscal year 2024 earnings call (2024-04-25).
-Each is an excerpt (prepared remarks -> transition -> start of Q&A), not
-the full multi-hour call, and re-flows the source sites' own formatting
-(e.g. The Motley Fool's "Name -- Title" convention) into api-ninjas.com's
-single "Name: " continuous-string convention - the content is real, the
-line-level presentation is normalized to the provider format this
-chunker targets.
+Tests chunk_transcript against real earnings call transcript excerpts,
+not synthetic placeholder text: verbatim quotes from Apple's Q2 FY2024
+and Microsoft's Q3 FY2024 earnings calls, each an excerpt (prepared
+remarks -> transition -> start of Q&A) re-flowed from the source sites'
+own formatting into api-ninjas.com's "Speaker: text" convention.
 """
 from src.earnings.chunking import MAX_CHUNK_CHARS, chunk_transcript
 
