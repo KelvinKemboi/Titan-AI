@@ -32,3 +32,6 @@ anthropic>=0.40
 
 # for text embeddings (Anthropic's recommended embeddings partner - see src/embeddings/service.py)
 voyageai>=0.3
+
+# for metrics exposed on GET /metrics (scraped by Prometheus, charted in Grafana)
+prometheus-client>=0.20

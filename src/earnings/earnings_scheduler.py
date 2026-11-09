@@ -10,6 +10,12 @@ much time elapsed.
 Standalone process:
     python -m src.earnings.earnings_scheduler
 """
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")  # before src.* imports - see src/api/main.py
+
 import logging
 from datetime import datetime, timedelta, timezone
 

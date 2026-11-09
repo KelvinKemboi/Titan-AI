@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from src.data.models import LLMCall, ToolCall
+from src.observability.metrics import observe_llm_call, observe_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,21 @@ def record_llm_call(
     can opt out of tracing by passing None. Token counts default to
     None if `response` has no `.usage`, rather than being recorded as 0.
     """
-    if db is None:
-        return
-
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
     output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
+    cost_usd = estimate_cost_usd(model, input_tokens, output_tokens)
+
+    # Metrics are recorded even when db is None (untraced callers), since
+    # they're process-local and free.
+    observe_llm_call(
+        model=model, call_type=call_type, outcome="success",
+        latency_s=latency_ms / 1000 if latency_ms is not None else None,
+        input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost_usd,
+    )
+
+    if db is None:
+        return
 
     try:
         db.add(LLMCall(
@@ -67,7 +77,7 @@ def record_llm_call(
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost_usd=estimate_cost_usd(model, input_tokens, output_tokens),
+            cost_usd=cost_usd,
             latency_ms=latency_ms,
         ))
     except Exception:
@@ -86,6 +96,7 @@ def record_tool_call(
 ) -> None:
     """Persists one ToolCall row: this call's own input and sources,
     independent of whatever the final aggregated answer ends up citing."""
+    observe_tool_call(tool_name, success)
     if db is None:
         return
 

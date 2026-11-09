@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  # Direct read of Titan's own tables (scan_runs, factor_scores, llm_calls).
+  # These are written by several processes (Streamlit, the scan scheduler, the
+  # earnings scheduler, the API), so Postgres - not any one process's /metrics -
+  # is the source of truth for scan freshness and historical spend.
+  - name: TitanPostgres
+    uid: titan-postgres
+    type: grafana-postgresql-datasource
+    url: db:5432
+    user: titan
+    secureJsonData:
+      password: titan
+    jsonData:
+      database: titan
+      sslmode: disable
+      postgresVersion: 1600

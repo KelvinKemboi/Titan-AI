@@ -164,6 +164,19 @@ def test_anthropic_api_error_produces_graceful_response():
     assert result.sources == []
 
 
+# Regression: a missing API key makes the SDK raise a bare TypeError (not an
+# anthropic.APIError) before any request is sent - this used to escape
+# answer_question and surface as an opaque HTTP 500 from POST /chat.
+def test_missing_credentials_type_error_produces_graceful_response():
+    client = MagicMock()
+    client.messages.create.side_effect = TypeError("Could not resolve authentication method")
+
+    result = answer_question(db=MagicMock(), question="Explain AAPL's score", client=client)
+
+    assert result.response == FALLBACK_RESPONSE
+    assert result.sources == []
+
+
 # a pathological loop that never stops calling tools terminates instead of hanging
 def test_runaway_tool_loop_terminates_gracefully(monkeypatch):
     tool_result = _factor_score_result()

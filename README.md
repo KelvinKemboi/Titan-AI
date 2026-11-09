@@ -61,6 +61,17 @@ pip install -r requirements.txt
 | `VOYAGE_API_KEY` | Embeddings (memo + earnings chunk search) | - |
 | `EARNINGS_PROVIDER_API_KEY` | Earnings transcript ingestion (api-ninjas.com) | - |
 | `API_HOST`, `API_PORT`, `API_ENV`, `API_LOG_LEVEL` | API server config | local-dev defaults |
+| `CHAT_API_KEY` | Streamlit sidebar chat -> `/chat` (must be the key half of an `API_KEYS` pair) | none - chat 401s |
+| `CHAT_TIMEOUT_SECONDS` | Streamlit -> `/chat` request timeout | `120` |
+
+All entrypoints (`app.py`, the API, both schedulers) load `.env` from the repo root, e.g.:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+VOYAGE_API_KEY=...
+API_KEYS=me:dev-key-123
+CHAT_API_KEY=dev-key-123
+```
 
 ## Running the App
 
@@ -213,6 +224,37 @@ Manual verification and eval scripts under `scripts/` (most require
 | `backfill_memo_embeddings.py` | Backfills memo embeddings for scans that predate memo search |
 | `seed_eval_fixtures.py` | Seeds fixture data used by the eval scripts above |
 | `report_llm_spend.py` | Prints aggregate LLM spend from the CLI |
+| `backtest_signal.py` | Does a higher composite score predict higher forward returns? (IC, quintile spread, hit rate, per-rating returns) |
+
+## Observability (Prometheus + Grafana)
+
+The API exposes Prometheus metrics on `GET /metrics` (`src/observability/metrics.py`):
+HTTP rate/latency/status per route, LLM calls/tokens/cost/latency per model and
+call type, tool calls per tool and outcome, and chat turn outcomes (`answered`,
+`cache_hit`, `llm_error`, `inconclusive`), round-trips per turn, and citations per answer.
+
+```bash
+docker compose --profile observability up -d   # Prometheus :9090, Grafana :3000 (admin/admin)
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Grafana auto-provisions the **Titan Overview** dashboard from two datasources:
+Prometheus (live request/LLM metrics) and Titan's Postgres (scan freshness,
+scan duration, ticker coverage, daily LLM spend - data written by several
+processes, so the DB is the source of truth). Alert rules live in
+`observability/prometheus/alerts.yml`. If the API runs on a port other than
+8000, update the `titan-api` target in `observability/prometheus/prometheus.yml`.
+
+## Signal Backtest
+
+```bash
+python -m scripts.backtest_signal            # 7/14/28-day forward horizons
+```
+
+Uses the price stored with every `factor_scores` row to measure whether the
+ranking has predictive power: Spearman IC, top-minus-bottom quintile spread,
+top-quintile hit rate, and excess return per rating. Short history and
+overlapping windows make it a regression metric, not proof of alpha.
 
 ## Tests
 

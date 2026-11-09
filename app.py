@@ -1,3 +1,9 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")  # before src.* imports - see src/api/main.py
+
 import logging
 import os
 import ssl
@@ -64,6 +70,11 @@ st.markdown(
 
 # The Streamlit UI talks to the FastAPI gateway (`uvicorn src.api.main:app`) over HTTP
 CHAT_API_URL = os.environ.get("CHAT_API_URL", f"http://localhost:{os.environ.get('API_PORT', '8000')}/chat")
+# /chat requires `Authorization: Bearer <key>` (src/api/auth.py). Must be the
+# key half of one of the API_KEYS "user_id:key" pairs the API was started with.
+CHAT_API_KEY = os.environ.get("CHAT_API_KEY", "")
+# One chat turn = intent classification + up to MAX_TOOL_ITERATIONS model calls.
+CHAT_TIMEOUT_SECONDS = float(os.environ.get("CHAT_TIMEOUT_SECONDS", "120"))
 REPORT_API_URL_TEMPLATE = os.environ.get(
     "REPORT_API_URL_TEMPLATE",
     f"http://localhost:{os.environ.get('API_PORT', '8000')}/company/{{ticker}}/report",
@@ -188,7 +199,8 @@ with st.sidebar:
             api_response = requests.post(
                 CHAT_API_URL,
                 json={"session_id": st.session_state["chat_session_id"], "message": chat_prompt},
-                timeout=30,
+                headers={"Authorization": f"Bearer {CHAT_API_KEY}"},
+                timeout=CHAT_TIMEOUT_SECONDS,
             )
             api_response.raise_for_status()
             payload = api_response.json()

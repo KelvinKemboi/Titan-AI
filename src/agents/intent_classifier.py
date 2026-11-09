@@ -3,13 +3,17 @@ Intent classification: a cheap model call that classifies each incoming
 chat message before the Chat/Agent Service decides which tools to
 foreground.
 """
+import logging
 import time
 from typing import Literal, Optional
 
 import anthropic
 from sqlalchemy.orm import Session
 
+from src.observability.metrics import observe_llm_call
 from src.observability.tracing import record_llm_call
+
+logger = logging.getLogger(__name__)
 
 # Haiku-class model
 CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
@@ -89,6 +93,10 @@ def classify_intent(
             messages=[{"role": "user", "content": question}],
         )
     except Exception:
+        # Non-fatal (chat proceeds without a routing hint) but must be visible:
+        # this used to hide a missing/invalid API key completely.
+        logger.warning("Intent classification failed; continuing without a hint", exc_info=True)
+        observe_llm_call(model=CLASSIFIER_MODEL, call_type="intent_classification", outcome="error")
         return None
     latency_ms = int((time.monotonic() - start) * 1000)
 

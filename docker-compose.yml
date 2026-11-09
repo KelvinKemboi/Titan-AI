@@ -30,5 +30,54 @@ services:
       timeout: 5s
       retries: 10
 
+  # --- Observability (opt-in): docker compose --profile observability up -d
+  # Prometheus scrapes the API's GET /metrics (API runs on the host via uvicorn)
+  # plus Postgres/Redis exporters; Grafana reads Prometheus and Titan's Postgres.
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - titan_prom_data:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - titan_grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus, db]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    profiles: [observability]
+    environment:
+      DATA_SOURCE_NAME: postgresql://titan:titan@db:5432/titan?sslmode=disable
+    depends_on: [db]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    profiles: [observability]
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on: [redis]
+
 volumes:
   titan_pg_data:
+  titan_prom_data:
+  titan_grafana_data:

@@ -16,6 +16,7 @@ from src.agents.tools import TOOLS, call_tool
 from src.agents.tools.base import Source
 from src.data.cache import cache_get, cache_set, chat_cache_key
 from src.data.models import ChatMessage, FactorScore
+from src.observability.metrics import observe_chat_turn, observe_llm_call
 from src.observability.tracing import record_llm_call, record_tool_call
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
         cache_key = chat_cache_key(question, data_version)
         cached = cache_get(cache_key)
         if cached is not None:
+            observe_chat_turn("cache_hit")
             return ChatAnswer.model_validate_json(cached)
 
     intent = classify_intent(question, db=db, request_id=request_id)
@@ -150,7 +152,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
     messages.append({"role": "user", "content": question})
     sources: List[Source] = []
 
-    for _ in range(MAX_TOOL_ITERATIONS):
+    for iteration in range(1, MAX_TOOL_ITERATIONS + 1):
         start = time.monotonic()
         try:
             response = client.messages.create(
@@ -160,7 +162,17 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
                 tools=TOOLS,
                 messages=messages,
             )
-        except anthropic.APIError:
+        except Exception as exc:
+            # anthropic.APIError covers HTTP/network failures, but a missing
+            # credential raises TypeError before any request is sent - both
+            # must degrade to the fallback answer, not a 500, and both must be
+            # logged so the cause isn't invisible.
+            logger.exception("Chat LLM call failed (request_id=%s): %s", request_id, exc)
+            observe_llm_call(
+                model=MODEL, call_type="chat_generation", outcome="error",
+                latency_s=time.monotonic() - start,
+            )
+            observe_chat_turn("llm_error", iterations=iteration)
             return ChatAnswer(response=FALLBACK_RESPONSE, sources=[])
         record_llm_call(
             db, request_id=request_id, call_type="chat_generation", model=MODEL,
@@ -171,6 +183,7 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
         if not tool_use_blocks:
             text = "".join(b.text for b in response.content if b.type == "text")
             answer = ChatAnswer(response=text, sources=sources)
+            observe_chat_turn("answered", iterations=iteration, sources=len(sources))
             if cache_key is not None:
                 cache_set(cache_key, answer.model_dump_json())
             return answer
@@ -184,4 +197,5 @@ def answer_question( db: Session, question: str, *, history: Optional[List[ChatM
             sources.extend(block_sources)
         messages.append({"role": "user", "content": tool_results})
 
+    observe_chat_turn("inconclusive", iterations=MAX_TOOL_ITERATIONS, sources=len(sources))
     return ChatAnswer(response=INCONCLUSIVE_RESPONSE, sources=sources)
