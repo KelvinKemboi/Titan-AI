@@ -256,6 +256,99 @@ ranking has predictive power: Spearman IC, top-minus-bottom quintile spread,
 top-quintile hit rate, and excess return per rating. Short history and
 overlapping windows make it a regression metric, not proof of alpha.
 
+## Benchmarks
+
+Measured locally (Postgres + Redis in Docker, single uvicorn worker) on
+2026-11-08 to 2026-11-10 and read back through Grafana. These come from
+synthetic workloads described below, not production traffic.
+
+### Read API
+
+1,500 GET requests, 8 concurrent, with Zipf-skewed ticker popularity (a few
+tickers requested far more often than the rest).
+
+| Route | Cached | p50 | p95 | p99 |
+|---|---|---|---|---|
+| `/rankings` | yes | <10ms | 10-25ms | ~48ms |
+| `/company/{ticker}` | yes | <10ms | 10-25ms | ~42ms |
+| `/company/{ticker}/report` | no | <10ms | 10-25ms | ~41ms |
+| `/compare` | no | <10ms | 10-25ms | ~38ms |
+
+- **Redis hit rate: 82.6%** (945 hits / 199 misses).
+- Uncached routes are as fast as cached ones locally - Postgres answers these
+  queries in a few ms, so Redis matters mainly under higher load or with a
+  remote database.
+- Percentiles come from Prometheus histogram buckets, so they're ranges, not exact values.
+
+### AI Chat
+
+30 `/chat` requests: 22 unique questions (single-ticker, comparison,
+thematic, earnings), 6 deliberate repeats, and 2 follow-ups within one
+session. LLM latencies are exact, from the `llm_calls` table.
+
+| Measure | p50 | p95 |
+|---|---|---|
+| Chat generation call (`claude-sonnet-5`, n=46) | 1.84s | 4.95s |
+| Intent classification call (Haiku 4.5, n=24) | 0.60s | 0.86s |
+| `/chat` end-to-end, answer generated (n=24) | 4.6s | 7.0s |
+| `/chat` end-to-end, response-cache hit (n=6) | 24ms | 31ms |
+
+- **Model round-trips per answer:** 1.92 on average (classifier, tool call, final answer).
+- **Cost:** $0.36 for the run, about $0.015 per generated answer. Input tokens
+  are 93% of it (147k in vs 9k out), because the system prompt and tool
+  definitions are re-sent on every call. Prompt caching isn't used yet, which
+  makes it the main lever for cutting cost.
+- **Chat cache hit rate:** 20% in this run, but that reflects the deliberate
+  repeats. Track the real rate on the Grafana "Response cache hit ratio" panel.
+- **Grounding:** 17 of 22 unique questions were answered from Titan's data with
+  citations. The 3 thematic questions failed because `VOYAGE_API_KEY` wasn't
+  set. The 2 earnings questions correctly reported no ingested transcripts,
+  and the sector question correctly reported there's no tool for it.
+
+Reproduce: start the API and the observability stack, send chat traffic,
+then query the `llm_calls` table:
+
+```sql
+SELECT call_type,
+       percentile_cont(0.5)  WITHIN GROUP (ORDER BY latency_ms) AS p50_ms,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_ms
+FROM llm_calls GROUP BY call_type;
+```
+
+### Signal Quality
+
+`scripts/backtest_signal.py` over 20 full-universe scans (Jul 29 - Sep 17, 2026):
+
+| Horizon | Mean IC | Top - bottom quintile | Top-quintile hit rate |
+|---|---|---|---|
+| 7 days | +0.028 | -1.34% | 51% |
+| 14 days | +0.003 | -1.51% | 55% |
+| 28 days | +0.028 | -2.10% | 56% |
+
+The long-short spread is negative at every horizon, and SELL-rated names
+beat STRONG BUY at 7 and 14 days and had the best excess return at 28 days.
+On this short history the ranking shows no edge.
+
+## Known Issues
+
+- **Failed answers get cached.** When a tool call fails (e.g. memo search
+  without `VOYAGE_API_KEY`), the "tool is unavailable" answer is still
+  written to the response cache. It keeps being served until the next scan,
+  even after the cause is fixed.
+- **Follow-up answers have no citations.** A follow-up like "what about its
+  momentum?" is often answered from conversation history without a tool call,
+  so it cites real numbers but returns 0 sources. The UI shows no Sources
+  expander for it, and Grafana counts it as ungrounded.
+- **Empty retrieval data until keys are set.** Without `VOYAGE_API_KEY`,
+  `memo_embeddings` stays empty and both search tools fail. After setting it,
+  run `python -m scripts.backfill_memo_embeddings`. Without
+  `EARNINGS_PROVIDER_API_KEY`, no earnings transcripts are ingested.
+- **Stuck scan rows.** A crashed scan can leave a `scan_runs` row in `running`
+  status forever. It stops blocking new scans after 2 hours but is never
+  marked failed. The Grafana "Stuck 'running' scans" panel shows them.
+- **Full scans always end `partial`.** 1-2 tickers fail to fetch from
+  yfinance on every run.
+
 ## Tests
 
 ```bash
